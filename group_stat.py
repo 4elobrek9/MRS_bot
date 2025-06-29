@@ -23,7 +23,8 @@ formatter = string.Formatter()
 stat_router = Router(name="stat_router")
 
 class ProfileConfig:
-    DEFAULT_BG_URL = "https://images.unsplash.com/photo-1506318137072-291786a88698?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8c3BhY2VlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80"
+    # Updated default background URL
+    DEFAULT_BG_URL = "https://as1.ftcdn.net/jpg/01/79/97/06/1000_F_179970625_W9rXJkr5Ia7lidDeNOTQlJ4gkisVn7G9.jpg"
     DEFAULT_AVATAR_URL = "https://placehold.co/120x120/CCCCCC/FFFFFF/png?text=AV"
 
     FONT_PATH = "Hlobus.ttf"
@@ -37,24 +38,28 @@ class ProfileConfig:
     MARGIN = 30
 
     AVATAR_SIZE = 120
+    
+    # Calculate initial Y-positions relative to card height for clarity
+    _INITIAL_AVATAR_Y = (CARD_HEIGHT - AVATAR_SIZE) // 2
+    _INITIAL_USERNAME_Y = _INITIAL_AVATAR_Y - 10
+
+    # Apply requested offsets
+    AVATAR_Y = _INITIAL_AVATAR_Y - int(CARD_HEIGHT * 0.02) # Avatar 2% higher
     AVATAR_X = MARGIN
-    AVATAR_Y = (CARD_HEIGHT - AVATAR_SIZE) // 2
     AVATAR_OFFSET = (AVATAR_X, AVATAR_Y)
 
+    USERNAME_Y = _INITIAL_USERNAME_Y + int(CARD_HEIGHT * 0.05) # Nickname 5% lower
     TEXT_BLOCK_LEFT_X = AVATAR_X + AVATAR_SIZE + MARGIN // 2
-    USERNAME_Y = AVATAR_Y - 10
-    TELEGRAM_NICKNAME_Y = USERNAME_Y + 30 # This constant remains, but the text drawing is removed
-    # LEFT_LUMCOINS_Y = TELEGRAM_NICKNAME_Y + 30 # Removed as Lumcoins move back to right
 
     EXPERIENCE_LABEL_Y = CARD_HEIGHT - MARGIN - 20 - 25
     EXP_BAR_Y = EXPERIENCE_LABEL_Y + 25
     EXP_BAR_X = MARGIN
     EXP_BAR_HEIGHT = 20
-    EXP_BAR_WIDTH = int( (CARD_WIDTH - EXP_BAR_X - MARGIN - 70) ) # Около 70% ширины с учетом текста справа
+    EXP_BAR_WIDTH = int( (CARD_WIDTH - EXP_BAR_X - MARGIN - 70) ) # Approximately 70% of width, considering text on the right
 
     RIGHT_COLUMN_X = CARD_WIDTH - MARGIN
-    RIGHT_COLUMN_TOP_Y = MARGIN + 20 # Общая начальная Y-позиция для правого столбца
-    ITEM_SPACING_Y = 70 # Расстояние между HP и Lumcoins
+    RIGHT_COLUMN_TOP_Y = MARGIN + 20 # Overall starting Y-position for the right column
+    ITEM_SPACING_Y = 70 # Spacing between HP and Lumcoins
     
     HP_COLORS = {
         "full": (0, 200, 0),
@@ -64,9 +69,9 @@ class ProfileConfig:
         "empty": (128, 0, 0)
     }
     
-    EXP_GRADIENT_START = (0, 128, 0) # Зеленый цвет
-    EXP_GRADIENT_END = (0, 255, 0) # Ярко-зеленый цвет
-    EXP_BAR_ALPHA = 200 # Прозрачность для шкалы опыта (0-255)
+    EXP_GRADIENT_START = (0, 128, 0) # Green color
+    EXP_GRADIENT_END = (0, 255, 0) # Bright green color
+    EXP_BAR_ALPHA = 200 # Transparency for the experience bar (0-255)
 
     MAX_HP = 150
     MIN_HP = 0
@@ -94,7 +99,7 @@ class ProfileConfig:
     ]
     BACKGROUND_SHOP = {
         "space": {"name": "Космос", "url": "https://images.unsplash.com/photo-1506318137072-291786a88698?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8c3BhY2VlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 50},
-        "nature": {"name": "Природа", "url": "https://images.unsplash.com/photo-1440330559787-852571c1c71a?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MTB8fG5hdHVyZXxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 40},
+        "nature": {"name": "Природа", "url": "https://images.unsplash.com/photo-1440330559787-852571c1c71a?ixlib=rb-4.0.3&ixid=M3wxMjA3fDF8fG5hdHVyZXxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 40},
         "city": {"name": "Город", "url": "https://images.unsplash.com/photo-1519013876546-8858ba07e532?ixlib=rb-4.0.3&ixid=M3wxMjA3fDF8fGNpdHl8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=600&q=80", "cost": 60},
         "abstract": {"name": "Абстракция", "url": "https://images.unsplash.com/photo-1508768787810-6adc1f09aeda?ixlib=rb-4.0.3&ixid=M3wxMjA3fDdzfHxhYnN0cmFjdHxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 30}
     }
@@ -384,79 +389,177 @@ class ProfileManager:
             font_small = ImageFont.load_default(size=ProfileConfig.FONT_SIZE_SMALL + 4)
             logger.info("Default Pillow fonts loaded.")
 
-        # Создаем базовое изображение и объект для рисования
+        # Create base image (transparent)
         base_image = Image.new('RGBA', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), (0, 0, 0, 0))
         draw_base = ImageDraw.Draw(base_image)
-        logger.debug("Base image and draw object created.")
+        logger.debug("Base image and draw object created for the card.")
 
-        # Нарисовать фон карточки
-        card_fill_color = (36, 38, 50, 255)
+        # Draw card shadow first
         shadow_offset_x = 5
         shadow_offset_y = 5
-        shadow_color = (0, 0, 0, 100)
+        shadow_color = (0, 0, 0, 100) # Semi-transparent black for shadow
         draw_base.rounded_rectangle(
             (shadow_offset_x, shadow_offset_y, ProfileConfig.CARD_WIDTH + shadow_offset_x, ProfileConfig.CARD_HEIGHT + shadow_offset_y),
             radius=ProfileConfig.CARD_RADIUS,
             fill=shadow_color
         )
-        draw_base.rounded_rectangle(
-            (0, 0, ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT),
-            radius=ProfileConfig.CARD_RADIUS,
-            fill=card_fill_color
-        )
-        logger.debug("Card background and shadow drawn.")
+        logger.debug("Card shadow drawn.")
 
-        # Обработка аватара
+        # ---- Background loading logic with detailed logging ----
+        background_url = profile.get('background_url', ProfileConfig.DEFAULT_BG_URL)
+        background_image = None
+        try:
+            logger.debug(f"Background Loading: Step 1 - Attempting to load background from URL: {background_url}.")
+            async with aiohttp.ClientSession() as session:
+                async with session.get(background_url) as resp:
+                    resp.raise_for_status() # Check for HTTP errors
+                    background_data = await resp.read()
+            logger.debug("Background Loading: Step 2 - Background image data downloaded successfully.")
+            
+            background_image = Image.open(BytesIO(background_data)).convert("RGBA")
+            logger.debug("Background Loading: Step 3 - Background image opened with PIL and converted to RGBA.")
+            
+            # Resize and crop to fit card dimensions, maintaining aspect ratio
+            bg_width, bg_height = background_image.size
+            card_aspect = ProfileConfig.CARD_WIDTH / ProfileConfig.CARD_HEIGHT
+            bg_aspect = bg_width / bg_height
+
+            if card_aspect > bg_aspect: # Card is wider than background, fit by height
+                new_bg_height = ProfileConfig.CARD_HEIGHT
+                new_bg_width = int(bg_width * (new_bg_height / bg_height))
+            else: # Card is taller or same aspect ratio, fit by width
+                new_bg_width = ProfileConfig.CARD_WIDTH
+                new_bg_height = int(bg_height * (new_bg_width / bg_width))
+            
+            background_image = background_image.resize((new_bg_width, new_bg_height), Image.Resampling.LANCZOS)
+            logger.debug(f"Background Loading: Step 4 - Background image resized to {new_bg_width}x{new_bg_height}.")
+
+            # Crop the resized image to the exact card dimensions, centering it
+            left = (new_bg_width - ProfileConfig.CARD_WIDTH) / 2
+            top = (new_bg_height - ProfileConfig.CARD_HEIGHT) / 2
+            right = (new_bg_width + ProfileConfig.CARD_WIDTH) / 2
+            bottom = (new_bg_height + ProfileConfig.CARD_HEIGHT) / 2
+            background_image = background_image.crop((left, top, right, bottom))
+            logger.debug("Background Loading: Step 5 - Background image cropped to fit card dimensions.")
+
+            # Create rounded corner mask for the background
+            mask_bg = Image.new('L', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), 0)
+            mask_bg_draw = ImageDraw.Draw(mask_bg)
+            mask_bg_draw.rounded_rectangle(
+                (0, 0, ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT),
+                radius=ProfileConfig.CARD_RADIUS,
+                fill=255
+            )
+            background_image.putalpha(mask_bg) # Apply rounded corner mask
+            logger.info("Background Loading: Step 6 - Rounded corner mask applied to background image.")
+
+        except Exception as e:
+            logger.error(f"Background Loading: Failed to load custom background from '{background_url}': {e}. Using solid color fallback.", exc_info=True)
+            background_image = Image.new('RGBA', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), (50, 50, 70, 255))
+            # Create rounded corner mask for the solid color fallback background as well
+            mask_bg = Image.new('L', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), 0)
+            mask_bg_draw = ImageDraw.Draw(mask_bg)
+            mask_bg_draw.rounded_rectangle(
+                (0, 0, ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT),
+                radius=ProfileConfig.CARD_RADIUS,
+                fill=255
+            )
+            background_image.putalpha(mask_bg) # Apply rounded corner mask
+            logger.info("Background Loading: Solid color fallback background created with rounded corners.")
+
+        if background_image:
+            # Paste background image at (0,0) over the shadow, before other elements.
+            base_image.paste(background_image, (0, 0), background_image)
+            logger.debug("Background image pasted onto base card.")
+        else:
+            logger.error("Background Loading: No background image was determined to be pasted (this should not happen if fallbacks work).")
+
+        # ---- End of background loading logic ----
+
+        # ---- Avatar rendering logic (logs are already from previous step) ----
         avatar_image = None
         try:
-            logger.debug(f"Attempting to get avatar for user ID: {user.id} from Telegram.")
+            logger.debug(f"Avatar Collection: Step 1 - Attempting to get profile photos for user ID: {user.id} from Telegram.")
             photos = await bot_instance.get_user_profile_photos(user.id, limit=1)
+            
             if photos.photos and photos.photos[0]:
+                logger.debug(f"Avatar Collection: Step 2 - Profile photos found. Number of photos: {len(photos.photos[0])}. Selecting the largest one.")
                 file_id = photos.photos[0][-1].file_id
+                logger.debug(f"Avatar Collection: Step 3 - File ID of the largest photo: {file_id}.")
+                
                 file = await bot_instance.get_file(file_id)
                 file_path = file.file_path
+                logger.debug(f"Avatar Collection: Step 4 - File path received from Telegram: {file_path}.")
+
                 if file_path:
                     avatar_bytes = BytesIO()
+                    logger.debug(f"Avatar Collection: Step 5 - Downloading file from path: {file_path}.")
                     await bot_instance.download_file(file_path, destination=avatar_bytes)
                     avatar_bytes.seek(0)
+                    
+                    logger.debug("Avatar Collection: Step 6 - Image downloaded. Opening with PIL and converting to RGBA.")
                     avatar_image = Image.open(avatar_bytes).convert("RGBA")
+                    
+                    logger.debug(f"Avatar Collection: Step 7 - Resizing avatar to {ProfileConfig.AVATAR_SIZE}x{ProfileConfig.AVATAR_SIZE}.")
                     avatar_image = avatar_image.resize((ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE))
+                    
+                    logger.debug("Avatar Collection: Step 8 - Creating circular mask for the avatar.")
                     mask = Image.new("L", avatar_image.size, 0)
                     mask_draw = ImageDraw.Draw(mask)
                     mask_draw.ellipse((0, 0, ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), fill=255)
+                    
+                    logger.debug("Avatar Collection: Step 9 - Applying mask to make avatar circular.")
                     avatar_image = ImageOps.fit(avatar_image, mask.size, centering=(0.5, 0.5))
                     avatar_image.putalpha(mask)
-                    logger.info(f"User avatar loaded and processed successfully for user {user.id}.")
+                    logger.info(f"Avatar Collection: Successfully loaded and processed user avatar for user {user.id}.")
                 else:
-                    logger.warning(f"File path not found for avatar of user {user.id}. Falling back to default placeholder.")
-                    raise ValueError("File path not available")
+                    logger.warning(f"Avatar Collection: Step 4.1 - File path was empty for avatar of user {user.id}. Initiating fallback to default placeholder.")
+                    raise ValueError("File path not available") # Trigger fallback
             else:
-                logger.info(f"No profile photos found for user {user.id}. Falling back to default placeholder.")
-                raise ValueError("No profile photos") 
+                logger.info(f"Avatar Collection: Step 2.1 - No profile photos found for user {user.id}. Initiating fallback to default placeholder.")
+                raise ValueError("No profile photos") # Trigger fallback
+        
         except Exception as e:
-            logger.warning(f"Failed to get user avatar {user.id}: {e}. Attempting to load default placeholder from URL.", exc_info=True)
+            logger.warning(f"Avatar Collection: Primary avatar retrieval failed for user {user.id}: {e}. Attempting to load default placeholder from URL.", exc_info=True)
             try:
+                logger.debug(f"Avatar Collection: Fallback Step 1 - Attempting to download default avatar from URL: {ProfileConfig.DEFAULT_AVATAR_URL}.")
                 async with aiohttp.ClientSession() as session:
                     async with session.get(ProfileConfig.DEFAULT_AVATAR_URL) as resp: 
-                        resp.raise_for_status()
+                        resp.raise_for_status() # Check for successful response
                         avatar_placeholder_data = await resp.read()
+                
+                logger.debug("Avatar Collection: Fallback Step 2 - Default avatar downloaded. Opening with PIL and converting to RGBA.")
                 avatar_image = Image.open(BytesIO(avatar_placeholder_data)).convert("RGBA")
+                
+                logger.debug(f"Avatar Collection: Fallback Step 3 - Resizing default avatar to {ProfileConfig.AVATAR_SIZE}x{ProfileConfig.AVATAR_SIZE}.")
                 avatar_image = avatar_image.resize((ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE))
+                
+                logger.debug("Avatar Collection: Fallback Step 4 - Creating circular mask for the default avatar.")
                 mask = Image.new("L", avatar_image.size, 0)
                 mask_draw = ImageDraw.Draw(mask)
                 mask_draw.ellipse((0, 0, ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), fill=255)
+                
+                logger.debug("Avatar Collection: Fallback Step 5 - Applying mask to default avatar to make it circular.")
                 avatar_image = ImageOps.fit(avatar_image, mask.size, centering=(0.5, 0.5))
                 avatar_image.putalpha(mask)
-                logger.info("Default avatar placeholder loaded successfully from URL.")
+                logger.info("Avatar Collection: Default avatar placeholder loaded successfully from URL.")
+            
             except Exception as e_fallback:
-                logger.error(f"Failed to load default avatar placeholder from URL '{ProfileConfig.DEFAULT_AVATAR_URL}': {e_fallback}. Using solid gray fallback.", exc_info=True)
+                logger.error(f"Avatar Collection: Critical Fallback Failed! Could not load default avatar placeholder from URL '{ProfileConfig.DEFAULT_AVATAR_URL}': {e_fallback}. Using solid gray fallback.", exc_info=True)
+                logger.debug(f"Avatar Collection: Final Fallback - Creating a solid gray {ProfileConfig.AVATAR_SIZE}x{ProfileConfig.AVATAR_SIZE} square as avatar.")
                 avatar_image = Image.new('RGBA', (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), (100, 100, 100, 255)) 
+                logger.info("Avatar Collection: Using a solid gray square as the final fallback avatar.")
 
         if avatar_image:
+            logger.debug("Avatar Collection: Pasting the determined avatar image onto the base card image.")
             base_image.paste(avatar_image, ProfileConfig.AVATAR_OFFSET, avatar_image)
             logger.debug("Avatar pasted onto base image.")
+        else:
+            logger.error("Avatar Collection: No avatar image was determined to be pasted (this should not happen if fallbacks work).")
 
-        # Иконка монетки на аватаре
+        # ---- End of avatar rendering logic ----
+
+        # Coin icon on avatar
         coin_icon_offset_x = ProfileConfig.AVATAR_X + ProfileConfig.AVATAR_SIZE - 25
         coin_icon_offset_y = ProfileConfig.AVATAR_Y + ProfileConfig.AVATAR_SIZE - 25
         draw_base.ellipse((coin_icon_offset_x, coin_icon_offset_y, 
@@ -481,24 +584,16 @@ class ProfileManager:
         logger.debug(f"Profile data for image: Display Name: {display_name}, Level: {level}, EXP: {exp}, Lumcoins: {lumcoins}, HP: {hp}.")
 
         username_text = f"{display_name}" 
-        # telegram_nickname_text = "⟟ Telegram nickname" # Удален комментарий по запросу
-
-        # Левый центральный блок текста
+        
+        # Left-central text block
         draw_text_with_shadow(draw_base, (ProfileConfig.TEXT_BLOCK_LEFT_X, ProfileConfig.USERNAME_Y), 
                             username_text, font_large, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         
-        # Удален "⟟ Telegram nickname"
-        # draw_text_with_shadow(draw_base, (ProfileConfig.TEXT_BLOCK_LEFT_X, ProfileConfig.TELEGRAM_NICKNAME_Y), 
-        #                     telegram_nickname_text, font_small, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
-        
-        # Lumcoins теперь снова только справа, поэтому код для левых Lumcoins удален
-        # draw_text_with_shadow(draw_base, (ProfileConfig.TEXT_BLOCK_LEFT_X, ProfileConfig.LEFT_LUMCOINS_Y), 
-        #                     left_lumcoins_text, font_medium, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         logger.debug("Left-central text block drawn.")
 
         needed_exp_for_next_level = self._get_exp_for_level(level)
 
-        # Секция опыта
+        # Experience section
         draw_text_with_shadow(draw_base, (ProfileConfig.EXP_BAR_X, ProfileConfig.EXPERIENCE_LABEL_Y),
                             "Experience", font_medium, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         logger.debug("Experience label drawn.")
@@ -516,20 +611,19 @@ class ProfileManager:
         )
         logger.debug("EXP bar background drawn.")
 
-        # Заполнение шкалы опыта градиентом (зеленая прозрачная полоса)
+        # Fill experience bar with gradient (green transparent band)
         for i in range(exp_bar_fill_width):
             r = int(ProfileConfig.EXP_GRADIENT_START[0] + (ProfileConfig.EXP_GRADIENT_END[0] - ProfileConfig.EXP_GRADIENT_START[0]) * (i / ProfileConfig.EXP_BAR_WIDTH))
             g = int(ProfileConfig.EXP_GRADIENT_START[1] + (ProfileConfig.EXP_GRADIENT_END[1] - ProfileConfig.EXP_GRADIENT_START[1]) * (i / ProfileConfig.EXP_BAR_WIDTH))
             b = int(ProfileConfig.EXP_GRADIENT_START[2] + (ProfileConfig.EXP_GRADIENT_END[2] - ProfileConfig.EXP_GRADIENT_START[2]) * (i / ProfileConfig.EXP_BAR_WIDTH))
             draw_base.line([(exp_bar_rect[0] + i, exp_bar_rect[1]),
                             (exp_bar_rect[0] + i, exp_bar_rect[3])],
-                        fill=(r, g, b, ProfileConfig.EXP_BAR_ALPHA), width=1) # Применена прозрачность
+                        fill=(r, g, b, ProfileConfig.EXP_BAR_ALPHA), width=1) # Transparency applied
         logger.debug("EXP bar filled with green gradient with transparency.")
         
-        # Текст прогресса шкалы опыта (например, "0/100" или "1/100")
+        # Experience bar progress text (e.g., "0/100" or "1/100")
         exp_progress_text = f"{exp}/{needed_exp_for_next_level}"
         exp_progress_text_bbox = draw_base.textbbox((0,0), exp_progress_text, font=font_medium)
-        # exp_progress_text_width = exp_progress_text_bbox[2] - exp_progress_text_bbox[0] # Not used
         exp_progress_pos_x = ProfileConfig.EXP_BAR_X + ProfileConfig.EXP_BAR_WIDTH + (ProfileConfig.MARGIN // 2)
         exp_progress_pos_y = ProfileConfig.EXP_BAR_Y + (ProfileConfig.EXP_BAR_HEIGHT - (exp_progress_text_bbox[3] - exp_progress_text_bbox[1])) // 2
         draw_text_with_shadow(draw_base, (exp_progress_pos_x, exp_progress_pos_y),
@@ -537,7 +631,7 @@ class ProfileManager:
         logger.debug(f"Experience progress text '{exp_progress_text}' drawn.")
 
 
-        # Правый столбец (HP и Lumcoins)
+        # Right column (HP and Lumcoins)
         # HP
         hp_right_text = "HP"
         hp_value_text = f"❤️ {hp}"
@@ -555,14 +649,14 @@ class ProfileManager:
                             hp_value_text, font_xlarge, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         logger.debug("Right column HP text drawn.")
 
-        # Lumcoins (возвращены в правый столбец, под HP)
+        # Lumcoins (returned to right column, under HP)
         lumcoins_right_text = "LumCoins"
-        lumcoins_value_text = f"₽ {lumcoins}" # Валютный символ возвращен
+        lumcoins_value_text = f"₽ {lumcoins}" # Currency symbol returned
         
         lumcoins_right_text_bbox = draw_base.textbbox((0,0), lumcoins_right_text, font=font_medium)
         lumcoins_right_text_width = lumcoins_right_text_bbox[2] - lumcoins_right_text_bbox[0]
         lumcoins_right_x = ProfileConfig.RIGHT_COLUMN_X - lumcoins_right_text_width
-        lumcoins_y = ProfileConfig.RIGHT_COLUMN_TOP_Y + ProfileConfig.ITEM_SPACING_Y # Отступ от HP
+        lumcoins_y = ProfileConfig.RIGHT_COLUMN_TOP_Y + ProfileConfig.ITEM_SPACING_Y # Offset from HP
         draw_text_with_shadow(draw_base, (lumcoins_right_x, lumcoins_y), 
                             lumcoins_right_text, font_medium, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         
