@@ -5,26 +5,25 @@ import sqlite3
 import time
 from datetime import datetime, date, timedelta
 from io import BytesIO
-from typing import Optional, Dict, Any
-from aiogram import Dispatcher, types, Bot
+from typing import Optional, Dict, Any, List, Tuple
+from aiogram import Dispatcher, types, Bot, Router, F
 from aiogram.filters import Command
 import logging
 logger = logging.getLogger(__name__)
 from PIL import Image, ImageDraw, ImageFont, ImageOps
-import requests
-from aiogram import Router, types, F
-from aiogram.enums import ChatType
-from aiogram.types import BufferedInputFile
 import random
 import aiohttp
+from aiogram.types import BufferedInputFile
+
+# Импортируем функции из database.py
+from database import get_user_rp_stats, ensure_user_exists, get_user_profile_info
 
 formatter = string.Formatter()
 
 stat_router = Router(name="stat_router")
 
 class ProfileConfig:
-    # Updated default background URL
-    DEFAULT_BG_URL = "https://as1.ftcdn.net/jpg/01/79/97/06/1000_F_179970625_W9rXJkr5Ia7lidDeNOTQlJ4gkisVn7G9.jpg"
+    DEFAULT_LOCAL_BG_PATH = "background/defolt.jpg"
     DEFAULT_AVATAR_URL = "https://placehold.co/120x120/CCCCCC/FFFFFF/png?text=AV"
 
     FONT_PATH = "Hlobus.ttf"
@@ -39,27 +38,25 @@ class ProfileConfig:
 
     AVATAR_SIZE = 120
     
-    # Calculate initial Y-positions relative to card height for clarity
     _INITIAL_AVATAR_Y = (CARD_HEIGHT - AVATAR_SIZE) // 2
     _INITIAL_USERNAME_Y = _INITIAL_AVATAR_Y - 10
 
-    # Apply requested offsets
-    AVATAR_Y = _INITIAL_AVATAR_Y - int(CARD_HEIGHT * 0.02) # Avatar 2% higher
+    AVATAR_Y = _INITIAL_AVATAR_Y - int(CARD_HEIGHT * 0.02)
     AVATAR_X = MARGIN
     AVATAR_OFFSET = (AVATAR_X, AVATAR_Y)
 
-    USERNAME_Y = _INITIAL_USERNAME_Y + int(CARD_HEIGHT * 0.05) # Nickname 5% lower
+    USERNAME_Y = _INITIAL_USERNAME_Y + int(CARD_HEIGHT * 0.05)
     TEXT_BLOCK_LEFT_X = AVATAR_X + AVATAR_SIZE + MARGIN // 2
 
     EXPERIENCE_LABEL_Y = CARD_HEIGHT - MARGIN - 20 - 25
     EXP_BAR_Y = EXPERIENCE_LABEL_Y + 25
     EXP_BAR_X = MARGIN
     EXP_BAR_HEIGHT = 20
-    EXP_BAR_WIDTH = int( (CARD_WIDTH - EXP_BAR_X - MARGIN - 70) ) # Approximately 70% of width, considering text on the right
+    EXP_BAR_WIDTH = int( (CARD_WIDTH - EXP_BAR_X - MARGIN - 70) )
 
     RIGHT_COLUMN_X = CARD_WIDTH - MARGIN
-    RIGHT_COLUMN_TOP_Y = MARGIN + 20 # Overall starting Y-position for the right column
-    ITEM_SPACING_Y = 70 # Spacing between HP and Lumcoins
+    RIGHT_COLUMN_TOP_Y = MARGIN + 20 
+    ITEM_SPACING_Y = 70 
     
     HP_COLORS = {
         "full": (0, 200, 0),
@@ -69,9 +66,9 @@ class ProfileConfig:
         "empty": (128, 0, 0)
     }
     
-    EXP_GRADIENT_START = (0, 128, 0) # Green color
-    EXP_GRADIENT_END = (0, 255, 0) # Bright green color
-    EXP_BAR_ALPHA = 200 # Transparency for the experience bar (0-255)
+    EXP_GRADIENT_START = (0, 128, 0)
+    EXP_GRADIENT_END = (0, 255, 0)
+    EXP_BAR_ALPHA = 200
 
     MAX_HP = 150
     MIN_HP = 0
@@ -98,7 +95,7 @@ class ProfileConfig:
         "смотрел(а) в окно"
     ]
     BACKGROUND_SHOP = {
-        "space": {"name": "Космос", "url": "https://images.unsplash.com/photo-1506318137072-291786a88698?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFyY2h8M3x8c3BhY2VlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 50},
+        "space": {"name": "Космос", "url": "https://images.unsplash.com/photo-1506318137072-291786a88698?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFjZXxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 50},
         "nature": {"name": "Природа", "url": "https://images.unsplash.com/photo-1440330559787-852571c1c71a?ixlib=rb-4.0.3&ixid=M3wxMjA3fDF8fG5hdHVyZXxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 40},
         "city": {"name": "Город", "url": "https://images.unsplash.com/photo-1519013876546-8858ba07e532?ixlib=rb-4.0.3&ixid=M3wxMjA3fDF8fGNpdHl8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=600&q=80", "cost": 60},
         "abstract": {"name": "Абстракция", "url": "https://images.unsplash.com/photo-1508768787810-6adc1f09aeda?ixlib=rb-4.0.3&ixid=M3wxMjA3fDdzfHxhYnN0cmFjdHxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 30}
@@ -109,8 +106,8 @@ class ProfileConfig:
     FONT_SIZE_SMALL = 16
 
 
-def init_db():
-    logger.info("Attempting to initialize database (sync).")
+def init_db_sync_profiles(): # Переименовал, чтобы не конфликтовать с init_db из database.py
+    logger.info("Attempting to initialize profiles database (sync).")
     if not os.path.exists('profiles.db'):
         logger.info("profiles.db not found, creating new database.")
         conn = sqlite3.connect('profiles.db')
@@ -135,15 +132,7 @@ def init_db():
             daily_messages INTEGER DEFAULT 0,
             total_messages INTEGER DEFAULT 0,
             flames INTEGER DEFAULT 0,
-            background_url TEXT,
             last_work_time REAL DEFAULT 0,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
-        )
-        ''')
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS backgrounds (
-            user_id INTEGER PRIMARY KEY,
-            background_url TEXT,
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
         ''')
@@ -154,7 +143,8 @@ def init_db():
     else:
         logger.info("Database profiles.db already exists, skipping sync initialization.")
 
-init_db()
+init_db_sync_profiles() # Вызываем синхронную инициализацию при старте
+
 
 class ProfileManager:
     def __init__(self):
@@ -163,33 +153,33 @@ class ProfileManager:
         self.font_cache = {}
 
     async def connect(self):
-        logger.debug("Attempting to connect to database asynchronously.")
+        logger.debug("Attempting to connect to profiles database asynchronously.")
         if self._conn is not None:
-            logger.warning("Database connection already exists, skipping reconnection.")
+            logger.warning("Profiles database connection already exists, skipping reconnection.")
             return
         try:
             self._conn = await aiosqlite.connect('profiles.db')
-            logger.info("Database connected asynchronously.")
+            logger.info("Profiles database connected asynchronously.")
             await self._init_db_async()
-            logger.info("Asynchronous database schema check/initialization completed.")
+            logger.info("Asynchronous profiles database schema check/initialization completed.")
         except Exception as e:
-            logger.exception("Failed to establish database connection or initialize schema asynchronously:")
+            logger.exception("Failed to establish profiles database connection or initialize schema asynchronously:")
             raise
 
     async def close(self):
-        logger.debug("Attempting to close database connection.")
+        logger.debug("Attempting to close profiles database connection.")
         if self._conn is not None:
             try:
                 await self._conn.close()
                 self._conn = None
-                logger.info("Database connection closed successfully.")
+                logger.info("Profiles database connection closed successfully.")
             except Exception as e:
-                logger.exception("Error occurred while closing database connection:")
+                logger.exception("Error occurred while closing profiles database connection:")
         else:
-            logger.info("Database connection was already closed or not established.")
+            logger.info("Profiles database connection was already closed or not established.")
 
     async def _init_db_async(self):
-        logger.debug("Starting asynchronous database schema initialization.")
+        logger.debug("Starting asynchronous profiles database schema initialization.")
         if self._conn is None:
             logger.error("Cannot perform async DB init: connection is None. Aborting.")
             return
@@ -214,29 +204,22 @@ class ProfileManager:
             daily_messages INTEGER DEFAULT 0,
             total_messages INTEGER DEFAULT 0,
             flames INTEGER DEFAULT 0,
-            background_url TEXT,
             last_work_time REAL DEFAULT 0,
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
-        )
-        ''')
-        await cursor.execute('''
-        CREATE TABLE IF NOT EXISTS backgrounds (
-            user_id INTEGER PRIMARY KEY,
-            background_url TEXT,
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
         ''')
         await cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON user_profiles(user_id)')
         await self._conn.commit()
-        logger.info("Asynchronous database tables checked/created.")
+        logger.info("Asynchronous profiles database tables checked/created.")
 
     async def get_user_profile(self, user: types.User) -> Optional[Dict[str, Any]]:
         logger.debug(f"Fetching or creating profile for user_id: {user.id}")
         if self._conn is None:
             logger.error("Database connection is not established when trying to get user profile.")
             raise RuntimeError("Database connection is not established.")
+        
+        # Ensure user exists in the main 'users' table in profiles.db
         cursor = await self._conn.cursor()
-
         await cursor.execute('''
             INSERT INTO users (user_id, username, first_name, last_name)
             VALUES (?, ?, ?, ?)
@@ -246,15 +229,16 @@ class ProfileManager:
                 last_name = excluded.last_name
         ''', (user.id, user.username, user.first_name, user.last_name))
         await self._conn.commit()
-        logger.debug(f"User {user.id} information updated/inserted in 'users' table.")
+        logger.debug(f"User {user.id} information updated/inserted in 'profiles.db users' table.")
+        
+        # Ensure user profile exists in 'user_profiles' table
         user_id = user.id
-
         await cursor.execute('''
-        INSERT OR IGNORE INTO user_profiles (user_id, background_url)
-        VALUES (?, ?)
-        ''', (user_id, ProfileConfig.DEFAULT_BG_URL))
+        INSERT OR IGNORE INTO user_profiles (user_id)
+        VALUES (?)
+        ''', (user_id,))
         await self._conn.commit()
-        logger.debug(f"User profile for {user_id} ensured existence in 'user_profiles' table.")
+        logger.debug(f"User profile for {user_id} ensured existence in 'profiles.db user_profiles' table.")
 
         await cursor.execute('''
         SELECT * FROM user_profiles WHERE user_id = ?
@@ -262,25 +246,26 @@ class ProfileManager:
         profile = await cursor.fetchone()
 
         if not profile:
-            logger.error(f"Profile not found for user_id {user.id} after creation attempt. This should not happen.")
+            logger.error(f"Profile not found for user_id {user.id} after creation attempt in profiles.db. This should not happen.")
             return None
 
         columns = [column[0] for column in cursor.description]
         profile_data = dict(zip(columns, profile))
-        logger.debug(f"Profile data retrieved for user_id {user.id}.")
+        logger.debug(f"Profile data retrieved for user_id {user.id} from profiles.db.")
         
         profile_data['display_name'] = f"@{user.username}" if user.username else user.full_name 
         logger.debug(f"Display name set to: {profile_data['display_name']} for user {user.id}.")
         
-        await cursor.execute('SELECT background_url FROM backgrounds WHERE user_id = ?', (user_id,))
-        custom_bg = await cursor.fetchone()
-        if custom_bg:
-            profile_data['background_url'] = custom_bg[0]
-            logger.debug(f"Custom background found and set for user {user.id}: {custom_bg[0]}.")
+        # Получаем HP из database.py
+        rp_stats = await get_user_rp_stats(user_id)
+        if rp_stats:
+            profile_data['hp'] = rp_stats.get('hp', ProfileConfig.MAX_HP)
+            logger.debug(f"HP fetched from database.py: {profile_data['hp']} for user {user.id}.")
         else:
-            profile_data['background_url'] = ProfileConfig.DEFAULT_BG_URL
-            logger.debug(f"No custom background found for user {user.id}, setting default: {ProfileConfig.DEFAULT_BG_URL}.")
-        
+            profile_data['hp'] = ProfileConfig.MAX_HP
+            logger.warning(f"Could not retrieve HP from database.py for user {user.id}, defaulting to {ProfileConfig.MAX_HP}.")
+
+
         logger.info(f"Successfully retrieved/created profile for user {user.id}.")
         return profile_data
 
@@ -289,8 +274,27 @@ class ProfileManager:
         if self._conn is None:
             logger.error("Database connection is not established when trying to record message.")
             raise RuntimeError("Database connection is not established.")
+        
+        # Ensure user exists in the main 'users' table in profiles.db
         cursor = await self._conn.cursor()
+        await cursor.execute('''
+            INSERT INTO users (user_id, username, first_name, last_name)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                username = excluded.username,
+                first_name = excluded.first_name,
+                last_name = excluded.last_name
+        ''', (user.id, user.username, user.first_name, user.last_name))
+        await self._conn.commit()
+        logger.debug(f"User {user.id} information updated/inserted in 'profiles.db users' table for message recording.")
+
         user_id = user.id
+        await cursor.execute('''
+        INSERT OR IGNORE INTO user_profiles (user_id)
+        VALUES (?)
+        ''', (user_id,))
+        await self._conn.commit()
+        logger.debug(f"User profile for {user_id} ensured existence in 'user_profiles' table for message recording.")
 
         await cursor.execute('''
         SELECT total_messages, level, exp, lumcoins
@@ -389,15 +393,13 @@ class ProfileManager:
             font_small = ImageFont.load_default(size=ProfileConfig.FONT_SIZE_SMALL + 4)
             logger.info("Default Pillow fonts loaded.")
 
-        # Create base image (transparent)
         base_image = Image.new('RGBA', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), (0, 0, 0, 0))
         draw_base = ImageDraw.Draw(base_image)
         logger.debug("Base image and draw object created for the card.")
 
-        # Draw card shadow first
         shadow_offset_x = 5
         shadow_offset_y = 5
-        shadow_color = (0, 0, 0, 100) # Semi-transparent black for shadow
+        shadow_color = (0, 0, 0, 100)
         draw_base.rounded_rectangle(
             (shadow_offset_x, shadow_offset_y, ProfileConfig.CARD_WIDTH + shadow_offset_x, ProfileConfig.CARD_HEIGHT + shadow_offset_y),
             radius=ProfileConfig.CARD_RADIUS,
@@ -405,44 +407,36 @@ class ProfileManager:
         )
         logger.debug("Card shadow drawn.")
 
-        # ---- Background loading logic with detailed logging ----
-        background_url = profile.get('background_url', ProfileConfig.DEFAULT_BG_URL)
         background_image = None
         try:
-            logger.debug(f"Background Loading: Step 1 - Attempting to load background from URL: {background_url}.")
-            async with aiohttp.ClientSession() as session:
-                async with session.get(background_url) as resp:
-                    resp.raise_for_status() # Check for HTTP errors
-                    background_data = await resp.read()
-            logger.debug("Background Loading: Step 2 - Background image data downloaded successfully.")
+            logger.debug(f"Background Loading: Step 1 - Attempting to load background from local path: {ProfileConfig.DEFAULT_LOCAL_BG_PATH}.")
+            if not os.path.exists(ProfileConfig.DEFAULT_LOCAL_BG_PATH):
+                raise FileNotFoundError(f"Local background file not found: {ProfileConfig.DEFAULT_LOCAL_BG_PATH}")
             
-            background_image = Image.open(BytesIO(background_data)).convert("RGBA")
-            logger.debug("Background Loading: Step 3 - Background image opened with PIL and converted to RGBA.")
+            background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
+            logger.debug("Background Loading: Step 2 - Local background image opened with PIL and converted to RGBA.")
             
-            # Resize and crop to fit card dimensions, maintaining aspect ratio
             bg_width, bg_height = background_image.size
             card_aspect = ProfileConfig.CARD_WIDTH / ProfileConfig.CARD_HEIGHT
             bg_aspect = bg_width / bg_height
 
-            if card_aspect > bg_aspect: # Card is wider than background, fit by height
+            if card_aspect > bg_aspect:
                 new_bg_height = ProfileConfig.CARD_HEIGHT
                 new_bg_width = int(bg_width * (new_bg_height / bg_height))
-            else: # Card is taller or same aspect ratio, fit by width
+            else:
                 new_bg_width = ProfileConfig.CARD_WIDTH
                 new_bg_height = int(bg_height * (new_bg_width / bg_width))
             
             background_image = background_image.resize((new_bg_width, new_bg_height), Image.Resampling.LANCZOS)
-            logger.debug(f"Background Loading: Step 4 - Background image resized to {new_bg_width}x{new_bg_height}.")
+            logger.debug(f"Background Loading: Step 3 - Background image resized to {new_bg_width}x{new_bg_height}.")
 
-            # Crop the resized image to the exact card dimensions, centering it
             left = (new_bg_width - ProfileConfig.CARD_WIDTH) / 2
             top = (new_bg_height - ProfileConfig.CARD_HEIGHT) / 2
             right = (new_bg_width + ProfileConfig.CARD_WIDTH) / 2
             bottom = (new_bg_height + ProfileConfig.CARD_HEIGHT) / 2
             background_image = background_image.crop((left, top, right, bottom))
-            logger.debug("Background Loading: Step 5 - Background image cropped to fit card dimensions.")
+            logger.debug("Background Loading: Step 4 - Background image cropped to fit card dimensions.")
 
-            # Create rounded corner mask for the background
             mask_bg = Image.new('L', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), 0)
             mask_bg_draw = ImageDraw.Draw(mask_bg)
             mask_bg_draw.rounded_rectangle(
@@ -450,13 +444,12 @@ class ProfileManager:
                 radius=ProfileConfig.CARD_RADIUS,
                 fill=255
             )
-            background_image.putalpha(mask_bg) # Apply rounded corner mask
-            logger.info("Background Loading: Step 6 - Rounded corner mask applied to background image.")
+            background_image.putalpha(mask_bg)
+            logger.info("Background Loading: Step 5 - Rounded corner mask applied to background image.")
 
-        except Exception as e:
-            logger.error(f"Background Loading: Failed to load custom background from '{background_url}': {e}. Using solid color fallback.", exc_info=True)
+        except FileNotFoundError as e:
+            logger.error(f"Background Loading: Failed to load local background: {e}. Using solid color fallback.", exc_info=True)
             background_image = Image.new('RGBA', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), (50, 50, 70, 255))
-            # Create rounded corner mask for the solid color fallback background as well
             mask_bg = Image.new('L', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), 0)
             mask_bg_draw = ImageDraw.Draw(mask_bg)
             mask_bg_draw.rounded_rectangle(
@@ -464,19 +457,27 @@ class ProfileManager:
                 radius=ProfileConfig.CARD_RADIUS,
                 fill=255
             )
-            background_image.putalpha(mask_bg) # Apply rounded corner mask
-            logger.info("Background Loading: Solid color fallback background created with rounded corners.")
+            background_image.putalpha(mask_bg)
+            logger.info("Background Loading: Solid color fallback background created due to local file not found.")
+        except Exception as e:
+            logger.error(f"Background Loading: Failed to load/process local background from '{ProfileConfig.DEFAULT_LOCAL_BG_PATH}' due to generic error: {e}. Using solid color fallback.", exc_info=True)
+            background_image = Image.new('RGBA', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), (50, 50, 70, 255))
+            mask_bg = Image.new('L', (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), 0)
+            mask_bg_draw = ImageDraw.Draw(mask_bg)
+            mask_bg_draw.rounded_rectangle(
+                (0, 0, ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT),
+                radius=ProfileConfig.CARD_RADIUS,
+                fill=255
+            )
+            background_image.putalpha(mask_bg)
+            logger.info("Background Loading: Solid color fallback background created due to general error.")
 
         if background_image:
-            # Paste background image at (0,0) over the shadow, before other elements.
             base_image.paste(background_image, (0, 0), background_image)
             logger.debug("Background image pasted onto base card.")
         else:
             logger.error("Background Loading: No background image was determined to be pasted (this should not happen if fallbacks work).")
 
-        # ---- End of background loading logic ----
-
-        # ---- Avatar rendering logic (logs are already from previous step) ----
         avatar_image = None
         try:
             logger.debug(f"Avatar Collection: Step 1 - Attempting to get profile photos for user ID: {user.id} from Telegram.")
@@ -494,7 +495,8 @@ class ProfileManager:
                 if file_path:
                     avatar_bytes = BytesIO()
                     logger.debug(f"Avatar Collection: Step 5 - Downloading file from path: {file_path}.")
-                    await bot_instance.download_file(file_path, destination=avatar_bytes)
+                    
+                    await bot_instance.download_file(file_path, destination=avatar_bytes, timeout=aiohttp.ClientTimeout(total=10))
                     avatar_bytes.seek(0)
                     
                     logger.debug("Avatar Collection: Step 6 - Image downloaded. Opening with PIL and converting to RGBA.")
@@ -514,18 +516,19 @@ class ProfileManager:
                     logger.info(f"Avatar Collection: Successfully loaded and processed user avatar for user {user.id}.")
                 else:
                     logger.warning(f"Avatar Collection: Step 4.1 - File path was empty for avatar of user {user.id}. Initiating fallback to default placeholder.")
-                    raise ValueError("File path not available") # Trigger fallback
+                    raise ValueError("File path not available")
             else:
                 logger.info(f"Avatar Collection: Step 2.1 - No profile photos found for user {user.id}. Initiating fallback to default placeholder.")
-                raise ValueError("No profile photos") # Trigger fallback
+                raise ValueError("No profile photos")
         
         except Exception as e:
             logger.warning(f"Avatar Collection: Primary avatar retrieval failed for user {user.id}: {e}. Attempting to load default placeholder from URL.", exc_info=True)
             try:
                 logger.debug(f"Avatar Collection: Fallback Step 1 - Attempting to download default avatar from URL: {ProfileConfig.DEFAULT_AVATAR_URL}.")
-                async with aiohttp.ClientSession() as session:
+                timeout = aiohttp.ClientTimeout(total=10) 
+                async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(ProfileConfig.DEFAULT_AVATAR_URL) as resp: 
-                        resp.raise_for_status() # Check for successful response
+                        resp.raise_for_status()
                         avatar_placeholder_data = await resp.read()
                 
                 logger.debug("Avatar Collection: Fallback Step 2 - Default avatar downloaded. Opening with PIL and converting to RGBA.")
@@ -557,9 +560,6 @@ class ProfileManager:
         else:
             logger.error("Avatar Collection: No avatar image was determined to be pasted (this should not happen if fallbacks work).")
 
-        # ---- End of avatar rendering logic ----
-
-        # Coin icon on avatar
         coin_icon_offset_x = ProfileConfig.AVATAR_X + ProfileConfig.AVATAR_SIZE - 25
         coin_icon_offset_y = ProfileConfig.AVATAR_Y + ProfileConfig.AVATAR_SIZE - 25
         draw_base.ellipse((coin_icon_offset_x, coin_icon_offset_y, 
@@ -578,28 +578,26 @@ class ProfileManager:
         level = profile.get('level', 1)
         exp = profile.get('exp', 0)
         lumcoins = profile.get('lumcoins', 0)
-        hp = profile.get('hp', 100)
+        hp = profile.get('hp', 100) # HP теперь берется из профиля, который уже включает HP из database.py
         total_messages = profile.get('total_messages', 0)
         flames = profile.get('flames', 0)
         logger.debug(f"Profile data for image: Display Name: {display_name}, Level: {level}, EXP: {exp}, Lumcoins: {lumcoins}, HP: {hp}.")
 
         username_text = f"{display_name}" 
         
-        # Left-central text block
         draw_text_with_shadow(draw_base, (ProfileConfig.TEXT_BLOCK_LEFT_X, ProfileConfig.USERNAME_Y), 
                             username_text, font_large, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
-        
-        logger.debug("Left-central text block drawn.")
+        logger.debug("Left-central text block (username) drawn.")
 
         needed_exp_for_next_level = self._get_exp_for_level(level)
 
-        # Experience section
         draw_text_with_shadow(draw_base, (ProfileConfig.EXP_BAR_X, ProfileConfig.EXPERIENCE_LABEL_Y),
                             "Experience", font_medium, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         logger.debug("Experience label drawn.")
 
         exp_bar_rect = (ProfileConfig.EXP_BAR_X, ProfileConfig.EXP_BAR_Y,
                         ProfileConfig.EXP_BAR_X + ProfileConfig.EXP_BAR_WIDTH, ProfileConfig.EXP_BAR_Y + ProfileConfig.EXP_BAR_HEIGHT)
+        
         current_exp_percentage = exp / needed_exp_for_next_level if needed_exp_for_next_level > 0 and level < ProfileConfig.MAX_LEVEL else (1.0 if level == ProfileConfig.MAX_LEVEL else 0.0)
         exp_bar_fill_width = int(ProfileConfig.EXP_BAR_WIDTH * current_exp_percentage)
         logger.debug(f"EXP Bar: current_exp_percentage={current_exp_percentage}, fill_width={exp_bar_fill_width}.")
@@ -611,17 +609,15 @@ class ProfileManager:
         )
         logger.debug("EXP bar background drawn.")
 
-        # Fill experience bar with gradient (green transparent band)
         for i in range(exp_bar_fill_width):
             r = int(ProfileConfig.EXP_GRADIENT_START[0] + (ProfileConfig.EXP_GRADIENT_END[0] - ProfileConfig.EXP_GRADIENT_START[0]) * (i / ProfileConfig.EXP_BAR_WIDTH))
             g = int(ProfileConfig.EXP_GRADIENT_START[1] + (ProfileConfig.EXP_GRADIENT_END[1] - ProfileConfig.EXP_GRADIENT_START[1]) * (i / ProfileConfig.EXP_BAR_WIDTH))
             b = int(ProfileConfig.EXP_GRADIENT_START[2] + (ProfileConfig.EXP_GRADIENT_END[2] - ProfileConfig.EXP_GRADIENT_START[2]) * (i / ProfileConfig.EXP_BAR_WIDTH))
             draw_base.line([(exp_bar_rect[0] + i, exp_bar_rect[1]),
                             (exp_bar_rect[0] + i, exp_bar_rect[3])],
-                        fill=(r, g, b, ProfileConfig.EXP_BAR_ALPHA), width=1) # Transparency applied
+                        fill=(r, g, b, ProfileConfig.EXP_BAR_ALPHA), width=1)
         logger.debug("EXP bar filled with green gradient with transparency.")
         
-        # Experience bar progress text (e.g., "0/100" or "1/100")
         exp_progress_text = f"{exp}/{needed_exp_for_next_level}"
         exp_progress_text_bbox = draw_base.textbbox((0,0), exp_progress_text, font=font_medium)
         exp_progress_pos_x = ProfileConfig.EXP_BAR_X + ProfileConfig.EXP_BAR_WIDTH + (ProfileConfig.MARGIN // 2)
@@ -631,8 +627,6 @@ class ProfileManager:
         logger.debug(f"Experience progress text '{exp_progress_text}' drawn.")
 
 
-        # Right column (HP and Lumcoins)
-        # HP
         hp_right_text = "HP"
         hp_value_text = f"❤️ {hp}"
         
@@ -649,14 +643,13 @@ class ProfileManager:
                             hp_value_text, font_xlarge, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         logger.debug("Right column HP text drawn.")
 
-        # Lumcoins (returned to right column, under HP)
         lumcoins_right_text = "LumCoins"
-        lumcoins_value_text = f"₽ {lumcoins}" # Currency symbol returned
+        lumcoins_value_text = f"₽ {lumcoins}"
         
         lumcoins_right_text_bbox = draw_base.textbbox((0,0), lumcoins_right_text, font=font_medium)
         lumcoins_right_text_width = lumcoins_right_text_bbox[2] - lumcoins_right_text_bbox[0]
         lumcoins_right_x = ProfileConfig.RIGHT_COLUMN_X - lumcoins_right_text_width
-        lumcoins_y = ProfileConfig.RIGHT_COLUMN_TOP_Y + ProfileConfig.ITEM_SPACING_Y # Offset from HP
+        lumcoins_y = ProfileConfig.RIGHT_COLUMN_TOP_Y + ProfileConfig.ITEM_SPACING_Y
         draw_text_with_shadow(draw_base, (lumcoins_right_x, lumcoins_y), 
                             lumcoins_right_text, font_medium, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         
@@ -666,7 +659,6 @@ class ProfileManager:
         draw_text_with_shadow(draw_base, (lumcoins_value_x, lumcoins_y + 25),
                             lumcoins_value_text, font_xlarge, ProfileConfig.TEXT_COLOR, ProfileConfig.TEXT_SHADOW_COLOR)
         logger.debug("Right column Lumcoins text drawn.")
-
 
         byte_io = BytesIO()
         base_image.save(byte_io, format='PNG')
@@ -701,19 +693,6 @@ class ProfileManager:
         lumcoins_value = result[0] if result else 0
         logger.info(f"Lumcoins for user {user_id}: {lumcoins_value}.")
         return lumcoins_value
-
-    async def set_background(self, user_id: int, background_url: str):
-        logger.debug(f"Setting background for user {user_id} to URL: {background_url}.")
-        if self._conn is None:
-            logger.error("Database connection not established when trying to set background.")
-            raise RuntimeError("Database connection is not established.")
-        cursor = await self._conn.cursor()
-        await cursor.execute('''
-        INSERT OR REPLACE INTO backgrounds (user_id, background_url)
-        VALUES (?, ?)
-        ''', (user_id, background_url))
-        await self._conn.commit()
-        logger.info(f"Background set for user {user_id} to {background_url}.")
 
     def get_available_backgrounds(self) -> Dict[str, Dict[str, Any]]:
         logger.debug("Retrieving available backgrounds from shop configuration.")
@@ -767,28 +746,85 @@ class ProfileManager:
         await self._conn.commit()
         logger.info(f"User {user_id} level set to {level} with exp {needed_exp}.")
 
+    # Эта функция теперь будет использовать update_user_rp_stats из database.py
     async def set_hp(self, user_id: int, hp_value: int):
-        logger.debug(f"Attempting to set HP for user {user_id} to {hp_value}.")
-        if self._conn is None:
-            logger.error("Database connection not established when trying to set HP.")
-            raise RuntimeError("Database connection is not established.")
-        cursor = await self._conn.cursor()
-        
+        logger.debug(f"Attempting to set HP for user {user_id} to {hp_value} via database.py.")
         hp_value = max(ProfileConfig.MIN_HP, min(hp_value, ProfileConfig.MAX_HP)) 
-        logger.debug(f"HP value for user {user_id} adjusted to {hp_value} (within bounds).")
+        await self.update_user_rp_stats(user_id, hp=hp_value)
+        logger.info(f"User {user_id} HP set to {hp_value} via database.py.")
+
+    # Добавляем метод для обновления RP-статистики через database.py
+    async def update_user_rp_stats(self, user_id: int, **kwargs: Optional[Any]) -> None:
+        from database import update_user_rp_stats as db_update_user_rp_stats
+        await db_update_user_rp_stats(user_id, **kwargs)
+
+    async def get_top_users_by_level(self, limit: int = 10) -> List[Dict[str, Any]]:
+        logger.debug(f"Fetching top {limit} users by level.")
+        if self._conn is None:
+            logger.error("Database connection not established when trying to get top users by level.")
+            raise RuntimeError("Database connection is not established.")
         
+        cursor = await self._conn.cursor()
         await cursor.execute('''
-        UPDATE user_profiles
-        SET hp = ?
-        WHERE user_id = ?
-        ''', (hp_value, user_id))
-        await self._conn.commit()
-        logger.info(f"User {user_id} HP set to {hp_value}.")
+            SELECT
+                up.user_id,
+                u.username,
+                u.first_name,
+                up.level,
+                up.exp
+            FROM user_profiles up
+            JOIN users u ON up.user_id = u.user_id
+            ORDER BY up.level DESC, up.exp DESC
+            LIMIT ?
+        ''', (limit,))
+        
+        rows = await cursor.fetchall()
+        columns = [description[0] for description in cursor.description]
+        top_users = []
+        for row in rows:
+            user_data = dict(zip(columns, row))
+            user_data['display_name'] = f"@{user_data['username']}" if user_data['username'] else user_data['first_name']
+            top_users.append(user_data)
+        logger.info(f"Retrieved top {len(top_users)} users by level.")
+        return top_users
+
+    async def get_top_users_by_lumcoins(self, limit: int = 10) -> List[Dict[str, Any]]:
+        logger.debug(f"Fetching top {limit} users by lumcoins.")
+        if self._conn is None:
+            logger.error("Database connection not established when trying to get top users by lumcoins.")
+            raise RuntimeError("Database connection is not established.")
+        
+        cursor = await self._conn.cursor()
+        await cursor.execute('''
+            SELECT
+                up.user_id,
+                u.username,
+                u.first_name,
+                up.lumcoins
+            FROM user_profiles up
+            JOIN users u ON up.user_id = u.user_id
+            ORDER BY up.lumcoins DESC
+            LIMIT ?
+        ''', (limit,))
+        
+        rows = await cursor.fetchall()
+        columns = [description[0] for description in cursor.description]
+        top_users = []
+        for row in rows:
+            user_data = dict(zip(columns, row))
+            user_data['display_name'] = f"@{user_data['username']}" if user_data['username'] else user_data['first_name']
+            top_users.append(user_data)
+        logger.info(f"Retrieved top {len(top_users)} users by lumcoins.")
+        return top_users
 
 
 @stat_router.message(F.text.lower().startswith(("профиль", "/профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"Received /profile command from user {message.from_user.id}.")
+    
+    # Убедимся, что пользователь существует в database.py, чтобы получить его HP
+    await ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
+
     profile = await profile_manager.get_user_profile(message.from_user)
     if not profile:
         logger.error(f"Failed to load profile for user {message.from_user.id} after /profile command.")
@@ -813,6 +849,7 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
     last_work_time = await profile_manager.get_last_work_time(user_id)
     time_elapsed = current_time - last_work_time
     time_left = ProfileConfig.WORK_COOLDOWN_SECONDS - time_elapsed
+    
     if time_elapsed < ProfileConfig.WORK_COOLDOWN_SECONDS:
         minutes_left = int(time_left // 60)
         seconds_left = int(time_left % 60)
@@ -830,10 +867,10 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
 async def show_shop(message: types.Message, profile_manager: ProfileManager):
     logger.info(f"Received 'магазин' command from user {message.from_user.id}.")
     shop_items = profile_manager.get_available_backgrounds()
-    text = "🛍️ **Магазин фонов** 🛍️\\n\\n"
-    text += "Напишите название фона из списка, чтобы купить его:\\n\\n"
+    text = "🛍️ **Магазин фонов** 🛍️\n\n"
+    text += "Напишите название фона из списка, чтобы купить его:\n\n"
     for key, item in shop_items.items():
-        text += f"- `{key}`: {item['name']} ({item['cost']} LUMcoins)\\n"
+        text += f"- `{key}`: {item['name']} ({item['cost']} LUMcoins)\n"
     logger.debug(f"Shop items compiled: {shop_items}.")
     await message.reply(text, parse_mode="Markdown")
     logger.info(f"Shop list sent to user {message.from_user.id}.")
@@ -850,7 +887,6 @@ async def buy_background(message: types.Message, profile_manager: ProfileManager
         logger.debug(f"User {user_id} has {user_coins} Lumcoins. Item '{item['name']}' costs {item['cost']}.")
         if user_coins >= item['cost']:
             await profile_manager.update_lumcoins(user_id, -item['cost'])
-            await profile_manager.set_background(user_id, item['url'])
             logger.info(f"User {user_id} successfully bought background '{item['name']}'. New balance.")
             await message.reply(f"✅ Вы успешно приобрели фон '{item['name']}' за {item['cost']} LUMcoins!")
         else:
@@ -859,13 +895,55 @@ async def buy_background(message: types.Message, profile_manager: ProfileManager
     else:
         logger.warning(f"Unexpected: User {user_id} tried to buy non-existent background '{command}'.")
 
+@stat_router.message(F.text.lower().startswith("топ"))
+async def show_top(message: types.Message, profile_manager: ProfileManager):
+    logger.info(f"Received 'топ' command from user {message.from_user.id}.")
+    args = message.text.lower().split()
+    top_type = "уровень" # default
+
+    if len(args) > 1:
+        if "уровень" in args:
+            top_type = "уровень"
+        elif "люмкоины" in args or "монеты" in args:
+            top_type = "люмкоины"
+        else:
+            await message.reply("Неверный формат команды. Используйте `топ уровень` или `топ люмкоины`.")
+            return
+
+    if top_type == "уровень":
+        top_users = await profile_manager.get_top_users_by_level(limit=10)
+        title = "🏆 Топ пользователей по уровню 🏆\n\n"
+        if not top_users:
+            response_text = "Пока нет данных для топа по уровню."
+        else:
+            response_text = ""
+            for i, user_data in enumerate(top_users):
+                response_text += f"{i+1}. {user_data['display_name']} - Уровень: {user_data['level']}, EXP: {user_data['exp']}\n"
+    elif top_type == "люмкоины":
+        top_users = await profile_manager.get_top_users_by_lumcoins(limit=10)
+        title = "💰 Топ пользователей по Lumcoins 💰\n\n"
+        if not top_users:
+            response_text = "Пока нет данных для топа по Lumcoins."
+        else:
+            response_text = ""
+            for i, user_data in enumerate(top_users):
+                response_text += f"{i+1}. {user_data['display_name']} - Lumcoins: {user_data['lumcoins']}₽\n"
+    
+    await message.reply(title + response_text, parse_mode="Markdown")
+    logger.info(f"Top {top_type} sent to user {message.from_user.id}.")
+
 @stat_router.message()
 async def track_message_activity(message: types.Message, profile_manager: ProfileManager):
     logger.debug(f"Tracking message activity for user {message.from_user.id}.")
     if message.from_user.id == message.bot.id or message.content_type != types.ContentType.TEXT:
         logger.debug(f"Ignoring message from bot or non-text message for user {message.from_user.id}.")
         return
+    
     user_id = message.from_user.id
+    
+    # Перед записью сообщения, убедимся что пользователь есть в database.py
+    await ensure_user_exists(user_id, message.from_user.username, message.from_user.first_name)
+
     old_profile = await profile_manager.get_user_profile(message.from_user)
     if not old_profile:
         logger.error(f"Failed to get old profile for user_id {user_id} in track_message_activity. Aborting.")
@@ -873,7 +951,9 @@ async def track_message_activity(message: types.Message, profile_manager: Profil
     old_level = old_profile.get('level', 1)
     old_lumcoins = old_profile.get('lumcoins', 0)
     logger.debug(f"User {user_id}: Old level {old_level}, old lumcoins {old_lumcoins}.")
+    
     await profile_manager.record_message(message.from_user)
+    
     new_profile = await profile_manager.get_user_profile(message.from_user)
     if not new_profile:
         logger.error(f"Failed to get new profile for user_id {user_id} after record_message. Aborting.")
@@ -882,6 +962,7 @@ async def track_message_activity(message: types.Message, profile_manager: Profil
     new_lumcoins = new_profile.get('lumcoins', 0)
     lumcoins_earned_from_level = new_lumcoins - old_lumcoins
     logger.debug(f"User {user_id}: New level {new_level}, new lumcoins {new_lumcoins}, earned {lumcoins_earned_from_level} from level up.")
+    
     if new_level > old_level and lumcoins_earned_from_level > 0:
         logger.info(f"User {user_id} leveled up to {new_level} and earned {lumcoins_earned_from_level} Lumcoins.")
         await message.reply(

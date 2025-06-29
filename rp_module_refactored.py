@@ -11,8 +11,6 @@ from aiogram.exceptions import TelegramAPIError
 from contextlib import suppress
 import database as db
 
-# Попытка импортировать ProfileManager из group_stat.
-# Если не удается, используется заглушка, чтобы предотвратить сбой всего приложения.
 try:
     from group_stat import ProfileManager as RealProfileManager
     HAS_PROFILE_MANAGER = True
