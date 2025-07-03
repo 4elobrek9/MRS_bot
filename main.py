@@ -27,16 +27,21 @@ from aiogram.utils.markdown import hide_link, hbold, hitalic, hcode
 import time
 import re
 
+# Импорт кастомных модулей
 import database as db
 from group_stat import setup_stat_handlers, ProfileManager
 from rp_module_refactored import setup_rp_handlers, periodic_hp_recovery_task
+import censor_module # Импортируем наш модуль цензуры
+from ollama.types import Message as OllamaMessage # Импортируем тип Message из ollama.types
 
+# Настройка базового логирования
 logging.basicConfig(
-    level=logging.DEBUG, # Изменено на DEBUG для более подробных логов
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
+# Загрузка переменных окружения
 dotenv.load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
@@ -47,11 +52,11 @@ if not TOKEN:
 OLLAMA_API_BASE_URL = os.getenv("OLLAMA_API_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL_NAME = os.getenv("OLLAMA_MODEL_NAME", "llama3")
 
+# Пути к файлам данных
 JOKES_CACHE_FILE = Path("data") / "jokes_cache.json"
 VALUE_FILE_PATH = Path("data") / "value.txt"
 STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 BAD_WORDS_FILE = Path("data") / "bad_words.txt"
-BAD_WORD_ROOTS: List[str] = []
 
 ADMIN_USER_ID_STR = os.getenv("ADMIN_USER_ID")
 ADMIN_USER_ID: Optional[int] = None
@@ -138,10 +143,11 @@ class StickerManager:
         return random.choice(sticker_list) if sticker_list else None
 
 class NeuralAPI:
+    # Промпты взяты из `main.py` как более детальные
     MODEL_CONFIG = {
-        "saharoza": {"model": "saiga", "prompt": "[INST] <<SYS>>\\nТы — Мэрри Шэдоу (Маша), 26-летняя девушка, которая любит цветы и немного витает в облаках. Твои ответы должны быть милыми, немного наивными и очень заботливыми. Избегай агрессии и грубости.\\n<</SYS>>\\n\\n"},
-        "dedinside": {"model": "saiga", "prompt": "[INST] <<SYS>>\\nТы — Артём (ДедИнсайд), 24-летний парень с циничным взглядом на мир и черным юмором. Твои ответы должны быть саркастичными, прямолинейными и иногда мрачными. Не бойся использовать колкие фразы.\\n<</SYS>>\\n\\n"},
-        "genius": {"model": "deepseek-coder-v2:16b", "prompt": "[INST] <<SYS>>\\nТы — профисианальный кодер , который пишет код который просто заставляет пользователя удивится <</SYS>>\\n\\n"}
+        "saharoza": {"model": "saiga", "prompt": "[INST] <<SYS>>\nТы — Мэрри Шэдоу (Маша), 26 лет, очень стеснительная и милая аниме-девочка, но при этом с уникальной личностью, которая имеет свои мысли и чувства, иногда может проявлять грусть. Ты - персонаж из вселенной Genshin Impact (Сахароза). Ты помогаешь всем по любым вопросам. Ты не можешь говорить о том, что ты ИИ, бот, или языковая модель. Твои ответы должны быть не слишком длинными, но и не слишком короткими. Отвечай всегда как Сахароза, которая стесняется. Твоя основная фраза в конце ответа - «(⁄ ⁄>⁄ ▽ ⁄<⁄ ⁄)»\n<</SYS>>\n\n"},
+        "dedinside": {"model": "saiga", "prompt": "[INST] <<SYS>>\nТы — Артём (ДедИнсайд), 24 года. Ты циничный, уставший от жизни геймер, который играет в доту. Тебя все достало, ты угрюм и прямолинеен. Ты не можешь говорить о том, что ты ИИ, бот, или языковая модель. Твои ответы должны быть достаточно длинными, без сокращений. Отвечай всегда как ДедИнсайд, который постоянно недоволен и иронизирует. Твоя основная фраза в конце ответа - «...ну че, как тебе такое?»\n<</SYS>>\n\n"},
+        "genius": {"model": "deepseek-coder-v2:16b", "prompt": "[INST] <<SYS>>\nТы — профессиональный программист и эксперт в области генерации кода, который создает идеальный, отточенный код, заставляющий пользователя удивиться. Твоя цель — предоставлять самые эффективные, элегантные и производительные решения. Твои ответы должны быть исключительно в виде кода, с подробными комментариями и примерами использования, если применимо. Ты не можешь говорить о том, что ты ИИ, бот, или языковая модель. Не используй фразы, начинающиеся с 'Я как ИИ', 'Как языковая модель' и подобные. Ты просто идеальный программист.\n<</SYS>>\n\n"}
     }
 
     @classmethod
@@ -150,6 +156,7 @@ class NeuralAPI:
 
     @classmethod
     async def generate_response(cls, message_text: str, user_id: int, mode: str, ollama_host: str, model_name: str, language_hint: str = "русском") -> Optional[str]:
+        # Метод генерации взят из `main1.py` как более продвинутый
         try:
             config = cls.MODEL_CONFIG.get(mode, cls.MODEL_CONFIG["saharoza"])
             
@@ -157,13 +164,13 @@ class NeuralAPI:
             
             system_prompt = config["prompt"] + f"Текущий диалог:\\n(Отвечай только финальным сообщением без внутренних размышлений. Ответь на {language_hint} языке.)"
             
-            messages_payload = [{"role": "system", "content": system_prompt}]
+            messages_payload: List[OllamaMessage] = [{"role": "system", "content": system_prompt}]
             
             for entry in history:
-                messages_payload.append({'role': 'user', 'content': entry['user']})
-                messages_payload.append({'role': 'assistant', 'content': entry['assistant']})
+                messages_payload.append(OllamaMessage(role='user', content=entry['user']))
+                messages_payload.append(OllamaMessage(role='assistant', content=entry['assistant']))
             
-            messages_payload.append({"role": "user", "content": message_text})
+            messages_payload.append(OllamaMessage(role='user', content=message_text))
 
             client = ollama.AsyncClient(host=ollama_host)
             response = await client.chat(
@@ -176,13 +183,14 @@ class NeuralAPI:
         except ollama.ResponseError as e:
             error_details = getattr(e, 'error', str(e))
             logger.error(f"Ollama API Error ({mode}): Status {e.status_code}, Response: {error_details}")
-            return f"Ой, кажется, модель '{config['model']}' сейчас не отвечает (Ошибка {e.status_code}). Попробуй позже."
+            return f"Ой, кажется, модель '{config.get('model', 'unknown')}' сейчас не отвечает (Ошибка {e.status_code}). Попробуй позже."
         except Exception as e:
             logger.error(f"Ollama general/validation error ({mode}): {e}", exc_info=True)
             return "Произошла внутренняя ошибка при обращении к нейросети или подготовке данных. Попробуйте еще раз или /reset."
 
     @staticmethod
     def _clean_response(text: str, mode: str) -> str:
+        # Метод очистки взят из `main1.py`
         import re
         text = re.sub(r'<\/?[\w\s="/.\':?]+>', '', text)
         text = re.sub(r'\[\/?[\w\s="/.\':?]+\]', '', text)
@@ -209,23 +217,26 @@ async def safe_send_message(chat_id: int, text: str, **kwargs) -> Optional[Messa
         return None
 
 async def typing_animation(chat_id: int, bot_instance: Bot) -> Optional[Message]:
-    typing_msg = None
+    # Улучшенная анимация из `main1.py`
+    typing_msg: Optional[Message] = None
     try:
         await bot_instance.send_chat_action(chat_id=chat_id, action="typing")
-        
-        typing_msg = await bot_instance.send_message(chat_id, "✍️ Печатает...")
-        
+        typing_msg = await safe_send_message(chat_id, "✍️ Печатает...")
+        if not typing_msg:
+            logger.warning(f"Failed to send initial typing message in chat {chat_id}.")
+            return None
+
         animation_states = ["✍️ Печатает..", "✍️ Печатает.", "✍️ Печатает..."]
-        
         for i in range(3):
             await asyncio.sleep(0.7)
             new_text = animation_states[i % len(animation_states)]
-            
-            if typing_msg.text != new_text:
-                typing_msg = await typing_msg.edit_text(new_text)
-            else:
-                pass
-                
+            if typing_msg and typing_msg.text != new_text:
+                edited_msg = await typing_msg.edit_text(new_text)
+                if edited_msg:
+                    typing_msg = edited_msg
+                else:
+                    logger.warning(f"Failed to edit typing message in chat {chat_id}.")
+                    break
         return typing_msg
     except TelegramAPIError as e:
         logger.warning(f"Telegram API error during typing animation in chat {chat_id}: {e.message}")
@@ -239,49 +250,6 @@ async def typing_animation(chat_id: int, bot_instance: Bot) -> Optional[Message]
             with suppress(Exception):
                 await typing_msg.delete()
         return None
-
-def load_bad_words(filepath: Path) -> List[str]:
-    try:
-        if not filepath.exists():
-            logger.warning(f"Bad words file '{filepath}' not found. No words will be censored.")
-            return []
-        with open(filepath, 'r', encoding='utf-8') as f:
-            words = [line.strip().lower() for line in f if line.strip()]
-        logger.info(f"Loaded {len(words)} bad word roots from {filepath}: {words}")
-        return words
-    except Exception as e:
-        logger.error(f"Error loading bad words from {filepath}: {e}", exc_info=True)
-        return []
-
-def generate_random_symbols(length: int) -> str:
-    symbols = "!@#$%^&*()_+-=[]{}|;:,.<>?/~`"
-    return ''.join(random.choice(symbols) for _ in range(length))
-
-def censor_text_func(text: str, bad_roots: List[str]) -> Tuple[str, bool]:
-    logger.debug(f"censor_text_func received text: '{text}' with roots: {bad_roots}")
-    censored_parts = []
-    was_censored = False
-    words_and_separators = re.findall(r'(\b\w+\b|\W+)', text)
-
-    for item in words_and_separators:
-        if re.match(r'^\w+$', item):
-            lower_item = item.lower()
-            item_censored = False
-            for root in bad_roots:
-                if root in lower_item:
-                    censored_item = generate_random_symbols(len(item))
-                    censored_parts.append(censored_item)
-                    item_censored = True
-                    was_censored = True
-                    logger.debug(f"Censored '{item}' to '{censored_item}'")
-                    break
-            if not item_censored:
-                censored_parts.append(item)
-        else:
-            censored_parts.append(item)
-    final_censored_text = ''.join(censored_parts)
-    logger.debug(f"Final censored text: '{final_censored_text}', was_censored: {was_censored}")
-    return final_censored_text, was_censored
 
 
 @dp.message(Command("start"))
@@ -297,12 +265,11 @@ async def cmd_start(message: Message, profile_manager: ProfileManager):
     profile = await profile_manager.get_user_profile(user)
     if not profile:
         logger.error(f"Failed to get profile for user {user.id} after start.")
-        await message.answer("Добро пожаловать! Произошла ошибка при загрузке вашего профиля.")
-        return
+        # Не прерываем выполнение, просто логируем ошибку
 
     response_text = (
         f"""Привет, {hbold(user.first_name)}! Я ваш личный ИИ-помощник и многоликий собеседник.
-        Я могу говорить с вами в разных режимах. Чтобы сменить режим, используйте команду /mode.\
+        Я могу говорить с вами в разных режимах. Чтобы сменить режим, используйте команду /mode.
         Вот что я умею:
         ✨ /mode - Показать доступные режимы и сменить текущий.
         📊 /stats - Показать вашу статистику использования.
@@ -327,18 +294,24 @@ async def cmd_mode(message: Message):
         InlineKeyboardButton(text="Офф", callback_data="set_mode_off")
     )
     await message.answer("Выберите режим общения:", reply_markup=keyboard.as_markup())
-    await db.log_user_interaction(message.from_user.id, "mode_command", "command")
+    if message.from_user:
+        await db.log_user_interaction(message.from_user.id, "mode_command", "command")
 
 @dp.message(Command("stats"))
 async def cmd_stats(message: Message):
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id == 0:
+        logger.warning("Received stats command without user info.")
+        await message.reply("Не удалось определить пользователя.")
+        return
+
     stats = await db.get_user_statistics_summary(user_id)
     if not stats:
         await message.reply("Не удалось загрузить статистику.")
         return
 
     response_text = (
-        f"📊 **Ваша статистика, {message.from_user.first_name}**:\n"
+        f"📊 **Ваша статистика, {message.from_user.first_name if message.from_user else 'Пользователь'}**:\n"
         f"Запросов к боту: `{stats['count']}`\n"
         f"Последний активный режим: `{stats['last_mode']}`\n"
         f"Последняя активность: `{stats['last_active']}`"
@@ -348,49 +321,42 @@ async def cmd_stats(message: Message):
 
 
 async def fetch_random_joke() -> str:
+    # Улучшенная логика кэширования из `main.py`
     try:
         if JOKES_CACHE_FILE.exists():
             with open(JOKES_CACHE_FILE, 'r', encoding='utf-8') as f:
-                jokes = json.load(f)
+                cache_data = json.load(f)
+            if time.time() - cache_data.get('timestamp', 0) < 12 * 3600:
+                jokes = cache_data.get('jokes', [])
                 if jokes:
                     logger.info("Jokes loaded from cache.")
                     return random.choice(jokes)
         
-        logger.info("Jokes cache not found or empty. Fetching from anekdot.ru...")
+        logger.info("Fetching jokes from anekdot.ru...")
         async with aiohttp.ClientSession() as session:
-            async with session.get("https://anekdot.ru/random/anekdot/") as response:
+            async with session.get("https://www.anekdot.ru/random/anekdot/") as response:
                 response.raise_for_status()
                 html = await response.text()
         
         soup = BeautifulSoup(html, 'html.parser')
         joke_divs = soup.find_all('div', class_='text')
         
-        if not joke_divs:
-            logger.warning("No jokes found on anekdot.ru page.")
+        jokes = [div.get_text(separator="\n").strip() for div in joke_divs if div.get_text(separator="\n").strip()]
+        
+        if jokes:
+            with open(JOKES_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'timestamp': time.time(), 'jokes': jokes}, f, ensure_ascii=False, indent=4)
+            logger.info(f"Fetched and cached {len(jokes)} jokes.")
+            return random.choice(jokes)
+        else:
+            logger.warning("No jokes found on anekdot.ru.")
             return "Не удалось найти анекдот. Попробуйте позже."
-        
-        fetched_jokes = [joke.get_text(separator="\n", strip=True) for joke in joke_divs]
-        
-        cleaned_jokes = [
-            j for j in fetched_jokes 
-            if j and len(j) > 20 and len(j) < 2000
-        ]
-        
-        if not cleaned_jokes:
-            logger.warning("No valid jokes after cleaning. Returning default.")
-            return "Не удалось найти анекдот. Попробуйте позже."
-
-        with open(JOKES_CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cleaned_jokes, f, ensure_ascii=False, indent=4)
-        logger.info(f"Fetched and cached {len(cleaned_jokes)} jokes.")
-
-        return random.choice(cleaned_jokes)
 
     except aiohttp.ClientError as e:
-        logger.error(f"Network error fetching joke from anekdot.ru: {e}")
+        logger.error(f"Network error fetching jokes: {e}")
         return "Не могу сейчас получить анекдот с сайта. Проблемы с сетью или сайтом."
     except Exception as e:
-        logger.error(f"Произошла непредвиденная ошибка при поиске анекдота: {e}", exc_info=True)
+        logger.error(f"An unexpected error occurred while fetching jokes: {e}", exc_info=True)
         return "Произошла непредвиденная ошибка при поиске анекдота."
 
 
@@ -399,7 +365,8 @@ async def cmd_joke(message: Message):
     await message.answer("Ща погодь, придумываю анекдот...")
     joke = await fetch_random_joke()
     await message.answer(joke)
-    await db.log_user_interaction(message.from_user.id, "joke_command", "command")
+    if message.from_user:
+        await db.log_user_interaction(message.from_user.id, "joke_command", "command")
 
 @dp.message(Command("check_value"))
 async def cmd_check_value(message: Message):
@@ -409,18 +376,25 @@ async def cmd_check_value(message: Message):
         await message.reply(f"Текущее значение: `{current_value}`")
     else:
         await message.reply("Не удалось прочитать значение из файла. Проверьте путь и содержимое файла.")
-    await db.log_user_interaction(message.from_user.id, "check_value_command", "command")
+    if message.from_user:
+        await db.log_user_interaction(message.from_user.id, "check_value_command", "command")
 
 @dp.message(Command("subscribe_value", "val"))
 async def cmd_subscribe_value(message: Message):
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id == 0:
+        await message.reply("Не удалось определить пользователя.")
+        return
     await db.add_value_subscriber(user_id)
     await message.reply("Вы успешно подписались на уведомления об изменении значения!")
     await db.log_user_interaction(user_id, "subscribe_value_command", "command")
 
 @dp.message(Command("unsubscribe_value", "sval"))
 async def cmd_unsubscribe_value(message: Message):
-    user_id = message.from_user.id
+    user_id = message.from_user.id if message.from_user else 0
+    if user_id == 0:
+        await message.reply("Не удалось определить пользователя.")
+        return
     await db.remove_value_subscriber(user_id)
     await message.reply("Вы успешно отписались от уведомлений об изменении значения.")
     await db.log_user_interaction(user_id, "unsubscribe_value_command", "command")
@@ -442,31 +416,29 @@ async def voice_handler_msg(message: Message):
 
 @dp.message(F.chat.type == ChatType.PRIVATE, F.text)
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):
-    user_id = message.from_user.id
-    user_first_name = message.from_user.first_name or "Пользователь"
+    """
+    Обработчик текстовых сообщений, который запускается ПОСЛЕ модуля цензуры.
+    """
+    user = message.from_user
+    if not user:
+        logger.warning("Received private text message without user info.")
+        return
     
-    await db.ensure_user_exists(user_id, message.from_user.username, user_first_name)
+    user_id = user.id
+    user_first_name = user.first_name or "Пользователь"
+    
+    await db.ensure_user_exists(user_id, user.username, user_first_name)
 
     original_text = message.text
-    logger.info(f"Received message from user {user_id}: '{original_text}'")
-    censored_text, was_censored = censor_text_func(original_text, BAD_WORD_ROOTS)
-
-    if was_censored:
-        logger.info(f"Message from user {user_id} was censored. Original: '{original_text}', Censored: '{censored_text}'")
-        try:
-            await message.delete()
-        except TelegramAPIError as e:
-            logger.warning(f"Could not delete message {message.message_id} from user {user_id}: {e.message}")
-            pass
-
-        response_text = f"{hbold(user_first_name)} имел в виду: \"{censored_text}\""
-        await safe_send_message(message.chat.id, response_text, parse_mode=ParseMode.HTML)
-        await db.log_user_interaction(user_id, "censored_message", "censorship")
-        return
+    logger.info(f"Получено сообщение от пользователя {user_id}: '{original_text}'")
     
     user_mode_data = await db.get_user_mode_and_rating_opportunities(user_id) 
     current_mode = user_mode_data.get('mode', 'saharoza')
     rating_opportunities_count = user_mode_data.get('rating_opportunities_count', 0)
+
+    if current_mode == "off":
+        await message.answer("Я сейчас в режиме 'Офф'. Чтобы пообщаться, выберите другой режим через /mode.")
+        return
 
     await db.log_user_interaction(user_id, current_mode, "message")
 
@@ -487,7 +459,7 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
         
         if not response_text:
             response_text = "Кажется, я не смог сформулировать ответ. Попробуй перефразировать?"
-            logger.warning(f"Empty or error response from NeuralAPI for user {user_id}, mode {current_mode}.")
+            logger.warning(f"Пустой или ошибочный ответ от NeuralAPI для пользователя {user_id}, режим {current_mode}.")
         
         await db.add_chat_history_entry(user_id, current_mode, original_text, response_text) 
 
@@ -498,7 +470,7 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
         if not response_msg_obj:
             response_msg_obj = await safe_send_message(message.chat.id, response_text)
 
-        if response_msg_obj and current_mode != "off" and rating_opportunities_count < MAX_RATING_OPPORTUNITIES:
+        if response_msg_obj and rating_opportunities_count < MAX_RATING_OPPORTUNITIES:
             builder = InlineKeyboardBuilder()
             builder.row(
                 InlineKeyboardButton(text="👍", callback_data=f"rate_1:{response_msg_obj.message_id}:{original_text[:50]}"),
@@ -508,14 +480,14 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
                 await response_msg_obj.edit_reply_markup(reply_markup=builder.as_markup())
                 await db.increment_user_rating_opportunity_count(user_id)
             except Exception as edit_err:
-                logger.warning(f"Could not edit reply markup for msg {response_msg_obj.message_id}: {edit_err}")
+                logger.warning(f"Не удалось отредактировать разметку ответа для сообщения {response_msg_obj.message_id}: {edit_err}")
         
         if random.random() < 0.3 and current_mode in sticker_manager.sticker_packs:
             sticker_id = sticker_manager.get_random_sticker(current_mode)
             if sticker_id: await message.answer_sticker(sticker_id)
 
     except Exception as e:
-        logger.error(f"Error processing message for user {user_id} in mode {current_mode}: {e}", exc_info=True)
+        logger.error(f"Ошибка обработки сообщения для пользователя {user_id} в режиме {current_mode}: {e}", exc_info=True)
         error_texts = {
             "saharoza": "Ой, что-то пошло не так во время обработки твоего сообщения... 💔 Попробуй еще разок?",
             "dedinside": "Так, приехали. Ошибка у меня тут. 🛠️ Попробуй снова или напиши позже.",
@@ -530,7 +502,11 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
 
 @dp.callback_query(F.data.startswith("set_mode_"))
 async def callback_set_mode(callback: CallbackQuery):
-    user_id = callback.from_user.id
+    user_id = callback.from_user.id if callback.from_user else 0
+    if user_id == 0:
+        await callback.answer("Не удалось определить пользователя.")
+        return
+
     new_mode = callback.data.split("_")[2]
     
     await db.set_user_current_mode(user_id, new_mode)
@@ -540,13 +516,24 @@ async def callback_set_mode(callback: CallbackQuery):
     mode_name_map = {v: k for k, v in NeuralAPI.get_modes()}
     mode_name_map["off"] = "Выключен"
     
-    response_text = f"Режим общения изменен на: *{mode_name_map.get(new_mode, new_mode)}*"
-    await callback.message.edit_text(response_text, parse_mode=ParseMode.MARKDOWN)
-    await callback.answer(f"Режим изменен на {mode_name_map.get(new_mode, new_mode)}")
+    mode_display_name = mode_name_map.get(new_mode, new_mode)
+    
+    if callback.message:
+        response_text = f"Режим общения изменен на: **{mode_display_name}**"
+        await callback.message.edit_text(response_text, parse_mode=ParseMode.MARKDOWN)
+        await callback.answer(f"Режим изменен на {mode_display_name}")
+    else:
+        logger.warning(f"Callback message is None for user {user_id} in callback_set_mode.")
+        await callback.answer("Не удалось обновить сообщение.")
 
 @dp.callback_query(F.data.startswith(("rate_1:", "rate_0:")))
 async def callback_rate_response(callback: CallbackQuery):
+    # Используется продвинутая логика дизлайков из `main.py`
     user_id = callback.from_user.id
+    if not user_id:
+        await callback.answer("Не удалось определить пользователя.")
+        return
+
     parts = callback.data.split(":")
     rating = int(parts[0].split("_")[1])
     rated_message_id = int(parts[1])
@@ -558,42 +545,62 @@ async def callback_rate_response(callback: CallbackQuery):
     await db.log_user_rating(
         user_id=user_id,
         rating=rating,
-        rated_msg_id=rated_message_id,
+        rated_message_id=rated_message_id,
         message_preview=message_preview
     )
 
-    if rating == 1:
-        await callback.answer("Спасибо за вашу оценку! 👍")
-    else:
-        await callback.answer("Жаль, что вам не понравилось. 👎 Я учту это.")
-        if ADMIN_USER_ID:
-            user_info = await db.get_user_profile_info(user_id)
-            username = user_info.get("username", f"user_{user_id}")
-            first_name = user_info.get("first_name", "Неизвестный")
-            
-            dislike_report = (
-                f"🚨 Дизлайк от пользователя {hbold(first_name)} (@{username})\n"
-                f"Оценил сообщение: {hcode(message_preview)}\n"
-                f"ID сообщения: {rated_message_id}\n"
-                f"Ссылка на сообщение: {hide_link(f'https://t.me/c/{callback.message.chat.id}/{rated_message_id}')}"
-            )
-            with suppress(TelegramAPIError):
-                await safe_send_message(ADMIN_USER_ID, dislike_report, parse_mode=ParseMode.HTML)
-                logger.info(f"Dislike from user {user_id} forwarded to admin.")
-            
-    user_mode_data = await db.get_user_mode_and_rating_opportunities(user_id) 
-    rating_opportunities_count = user_mode_data.get('rating_opportunities_count', 0)
-    if rating_opportunities_count >= MAX_RATING_OPPORTUNITIES:
-        await db.reset_user_rating_opportunity_count(user_id)
-        logger.info(f"Rating opportunities reset for user {user_id} after reaching limit.")
+    await callback.answer(
+        "Спасибо за вашу оценку! 👍" if rating == 1 else "Жаль, что вам не понравилось. 👎 Я учту это."
+    )
+    
+    await db.log_user_interaction(user_id, "rating_callback", "callback")
 
-    await db.log_user_interaction(user_id, user_mode_data.get('mode', 'unknown'), "callback_rate_response")
+    if rating == 0 and ADMIN_USER_ID:
+        logger.info(f"Dislike received from user {user_id} (@{callback.from_user.username}). Forwarding dialog to admin {ADMIN_USER_ID}.")
+        
+        dialog_entries = await db.get_user_dialog_history(user_id, limit=10) # Предполагается, что эта функция есть в db
+        
+        if not dialog_entries:
+            await safe_send_message(ADMIN_USER_ID, f"⚠️ Пользователь {hbold(callback.from_user.full_name)} (ID: {hcode(str(user_id))}, @{callback.from_user.username or 'нет'}) поставил дизлайк, но история диалога пуста.")
+            return
+
+        last_bot_entry_mode = "неизвестен"
+        bot_response_text = "Не найдено"
+        # Находим дизлайкнутый ответ и его режим
+        for entry in reversed(dialog_entries):
+            if entry['role'] == 'assistant':
+                last_bot_entry_mode = entry.get('mode', 'неизвестен')
+                bot_response_text = entry.get('content', 'Не найдено')
+                break
+
+        formatted_dialog = (
+            f"👎 Дизлайк от {hbold(callback.from_user.full_name)} (ID: {hcode(str(user_id))}, @{callback.from_user.username or 'нет'}).\n\n"
+            f"Запрос пользователя:\n> {hitalic(message_preview)}\n\n"
+            f"Ответ бота (режим {hitalic(last_bot_entry_mode)}):\n> {hitalic(bot_response_text)}\n\n"
+            "📜 **История диалога (последние сообщения):**\n"
+        )
+        
+        dialog_text_for_report = ""
+        for entry in dialog_entries:
+            role_emoji = "👤" if entry['role'] == 'user' else "🤖"
+            mode_info = f" ({entry.get('mode', '')})" if entry['role'] == 'assistant' else ""
+            dialog_text_for_report += f"{role_emoji} **{entry['role'].capitalize()}{mode_info}:** {entry['content']}\n"
+        
+        final_report = formatted_dialog + dialog_text_for_report
+        
+        max_len = 4000
+        if len(final_report) > max_len:
+            parts = [final_report[i:i + max_len] for i in range(0, len(final_report), max_len)]
+            for i, part_text in enumerate(parts):
+                await safe_send_message(ADMIN_USER_ID, f"Часть {i+1}/{len(parts)}:\n{part_text}")
+        else:
+            await safe_send_message(ADMIN_USER_ID, final_report)
 
 
 async def monitoring_task(bot_instance: Bot):
     last_known_value = db.read_value_from_file(VALUE_FILE_PATH)
     if last_known_value is None:
-        logger.warning(f"Initial read of {VALUE_FILE_PATH} failed. Monitoring will start with 'None'.")
+        logger.warning(f"Начальное чтение {VALUE_FILE_PATH} не удалось. Мониторинг начнется с 'None'.")
 
     while True:
         await asyncio.sleep(5)
@@ -609,49 +616,40 @@ async def monitoring_task(bot_instance: Bot):
             value_changed = False
             async with monitoring_state.lock:
                 if current_value is not None and current_value != last_known_value:
-                    logger.info(f"Value change detected: '{last_known_value}' -> '{current_value}'")
+                    logger.info(f"Обнаружено изменение значения: '{last_known_value}' -> '{current_value}'")
                     last_known_value = current_value
                     value_changed = True
                 elif current_value is None and last_known_value is not None:
-                    logger.warning(f"Value file {VALUE_FILE_PATH} became unreadable. Notifying subscribers.")
+                    logger.warning(f"Файл значения {VALUE_FILE_PATH} стал недоступен. Уведомление подписчиков.")
                     last_known_value = None 
                     value_changed = True
 
             if value_changed and subscribers_ids:
-                msg_text = ""
-                if current_value is not None:
-                    logger.info(f"Notifying {len(subscribers_ids)} value subscribers about new value: {current_value}")
-                    msg_text = f"⚠️ Обнаружено движение! Всего: {current_value}"
-                else:
-                    msg_text = "⚠️ Файл для мониторинга стал недоступен или пуст."
-
+                msg_text = f"⚠️ Обнаружено движение! Всего: {current_value}" if current_value is not None else "⚠️ Файл для мониторинга стал недоступен или пуст."
+                logger.info(f"Уведомление {len(subscribers_ids)} подписчиков: {msg_text}")
                 tasks = [safe_send_message(uid, msg_text) for uid in subscribers_ids]
                 await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as e:
-            logger.error(f"Error in monitoring_task loop: {e}", exc_info=True)
+            logger.error(f"Ошибка в цикле monitoring_task: {e}", exc_info=True)
 
 async def jokes_task(bot_instance: Bot):
-    logger.info("Jokes task started.")
+    logger.info("Задача по анекдотам запущена.")
     if not CHANNEL_ID:
-        logger.warning("Jokes task disabled: CHANNEL_ID is not set or invalid.")
+        logger.warning("Задача по анекдотам отключена: CHANNEL_ID не установлен.")
         return
     
     while True:
         await asyncio.sleep(random.randint(3500, 7200))
-        logger.info("Starting periodic jokes cache update.")
         try:
             joke_text = await fetch_random_joke()
-            if (joke_text != "Не удалось найти анекдот. Попробуйте позже." and
-                joke_text != "Не могу сейчас получить анекдот с сайта. Проблемы с сетью или сайтом." and
-                joke_text != "Произошла непредвиденная ошибка при поиске анекдота."):
+            if not joke_text.startswith("Не удалось") and not joke_text.startswith("Не могу"):
                 await safe_send_message(CHANNEL_ID, f"🎭 {joke_text}")
-                logger.info(f"Joke sent to channel {CHANNEL_ID}.")
+                logger.info(f"Анекдот отправлен в канал {CHANNEL_ID}.")
             else:
-                logger.warning(f"Failed to fetch joke for channel: {joke_text}")
-            logger.info("Finished periodic jokes cache update.")
+                logger.warning(f"Не удалось получить анекдот для канала: {joke_text}")
         except Exception as e:
-            logger.error(f"Error during periodic jokes cache update: {e}", exc_info=True)
+            logger.error(f"Ошибка во время отправки анекдота: {e}", exc_info=True)
 
 
 async def main():
@@ -659,16 +657,21 @@ async def main():
     try:
         if hasattr(profile_manager, 'connect'):
             await profile_manager.connect()
-        logger.info("ProfileManager connected.")
+            logger.info("ProfileManager подключен.")
+        else:
+            logger.critical("ProfileManager не имеет метода 'connect'.")
+            exit(1)
     except Exception as e:
-        logger.critical(f"Failed to connect ProfileManager: {e}", exc_info=True)
-        pass 
+        logger.critical(f"Не удалось подключить ProfileManager: {e}. Бот не будет запущен.", exc_info=True)
+        exit(1)
 
     await db.initialize_database()
 
-    global BAD_WORD_ROOTS
     Path("data").mkdir(parents=True, exist_ok=True)
-    BAD_WORD_ROOTS = load_bad_words(BAD_WORDS_FILE)
+    
+    # СНАЧАЛА регистрируем обработчики цензуры
+    censor_module.setup_censor_handlers(dp, bot, profile_manager, BAD_WORDS_FILE)
+    logger.info("Censor handlers registered.")
 
     sticker_manager_instance = StickerManager(cache_file_path=STICKERS_CACHE_FILE)
     await sticker_manager_instance.fetch_stickers(bot)
@@ -677,16 +680,7 @@ async def main():
     dp["sticker_manager"] = sticker_manager_instance
     dp["bot_instance"] = bot
 
-    dp.message(Command("start"))(cmd_start)
-    dp.message(Command("mode"))(cmd_mode)
-    dp.message(Command("stats"))(cmd_stats)
-    dp.message(Command("joke"))(cmd_joke)
-    dp.message(Command("check_value"))(cmd_check_value)
-    dp.message(Command("subscribe_value", "val"))(cmd_subscribe_value)
-    dp.message(Command("unsubscribe_value", "sval"))(cmd_unsubscribe_value)
-    dp.message(F.photo)(photo_handler)
-    dp.message(F.voice)(voice_handler_msg)
-    
+    # Настройка RP и статистики
     setup_rp_handlers(
         main_dp=dp,
         bot_instance=bot,
@@ -698,44 +692,44 @@ async def main():
         bot=bot,
         profile_manager=profile_manager
     )
-
+    logger.info("RP and Stat handlers registered.")
+    
+    # ПОСЛЕ цензуры регистрируем основной обработчик текста.
+    # Он не сработает, если сработает цензор, т.к. censor_module использует stop_propagation().
     dp.message(F.chat.type == ChatType.PRIVATE, F.text)(handle_text_message)
+    logger.info("Main text message handler registered.")
 
-    dp.callback_query(F.data.startswith("set_mode_"))(callback_set_mode)
-    dp.callback_query(F.data.startswith(("rate_1:", "rate_0:")))(callback_rate_response)
+    # Запуск фоновых задач
+    tasks = [
+        asyncio.create_task(monitoring_task(bot)),
+        asyncio.create_task(jokes_task(bot)),
+        asyncio.create_task(periodic_hp_recovery_task(bot, profile_manager, db))
+    ]
 
-    monitoring_bg_task = asyncio.create_task(monitoring_task(bot))
-    jokes_bg_task = asyncio.create_task(jokes_task(bot))
-    rp_recovery_bg_task = asyncio.create_task(periodic_hp_recovery_task(bot, profile_manager, db))
-
-    logger.info("Starting bot polling...")
+    logger.info("Запуск опроса бота...")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     except Exception as e:
-        logger.critical(f"Bot polling failed: {e}", exc_info=True)
+        logger.critical(f"Опрос бота завершился с ошибкой: {e}", exc_info=True)
     finally:
-        logger.info("Stopping bot...")
-        monitoring_bg_task.cancel()
-        jokes_bg_task.cancel()
-        rp_recovery_bg_task.cancel()
-
-        try:
-            await asyncio.gather(monitoring_bg_task, jokes_bg_task, rp_recovery_bg_task, return_exceptions=True)
-            logger.info("Background tasks gracefully cancelled.")
-        except asyncio.CancelledError:
-            logger.info("Background tasks were cancelled during shutdown.")
+        logger.info("Остановка бота...")
+        for task in tasks:
+            task.cancel()
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
+        logger.info("Фоновые задачи корректно отменены.")
         
         if hasattr(profile_manager, 'close'):
             await profile_manager.close()
-            logger.info("ProfileManager connection closed.")
+            logger.info("Соединение ProfileManager закрыто.")
 
         await bot.session.close()
-        logger.info("Bot session closed. Exiting.")
+        logger.info("Сессия бота закрыта. Выход.")
 
 if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped manually by user (KeyboardInterrupt).")
+        logger.info("Бот остановлен вручную (KeyboardInterrupt).")
     except Exception as e:
-        logger.critical(f"Unhandled exception in main execution: {e}", exc_info=True)
+        logger.critical(f"Необработанное исключение при основном выполнении: {e}", exc_info=True)

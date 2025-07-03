@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="T-KOo3m1sxwY2ycDkscS" name="Страница — 1">
-        <mxGraphModel dx="3160" dy="2478" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="4608" dy="2496" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -17,7 +17,7 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="3" value="проверка работоспособности компонентов" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="340" y="-190" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="340" y="-170" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="5" value="что-то отказало уведомление в alarm винды и выключение" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="120" y="-310" width="130" height="100" as="geometry"/>
@@ -71,7 +71,11 @@
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="99" style="edgeStyle=none;html=1;" parent="1" source="12" target="98" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="750" y="960"/>
+                        </Array>
+                    </mxGeometry>
                 </mxCell>
                 <mxCell id="101" style="edgeStyle=none;html=1;" parent="1" source="12" target="100" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -192,7 +196,10 @@
                     <mxGeometry x="-470" y="725" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="53" value="если юзер реплает другому много раз то делать их &quot;знакомыми&quot;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="710" y="-45" width="120" height="90" as="geometry"/>
+                    <mxGeometry x="730" y="-30" width="120" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="132" style="edgeStyle=none;html=1;" edge="1" parent="1" source="55" target="131">
+                    <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="55" value="возможность добавлять в друзья" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="540" y="-65" width="120" height="60" as="geometry"/>
@@ -215,7 +222,7 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="62" value="ПРЕМКА" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="130" y="10" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="-150" y="-45" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="63" value="удобный HELP" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="-310" y="745" width="120" height="60" as="geometry"/>
@@ -251,10 +258,10 @@
                     <mxGeometry x="200" y="970" width="120" height="110" as="geometry"/>
                 </mxCell>
                 <mxCell id="76" value="Рулетка на выйгрыш чего либо ежедневная и возможность накопить при условии аквтиности" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry y="860" width="120" height="120" as="geometry"/>
+                    <mxGeometry x="-20" y="810" width="120" height="120" as="geometry"/>
                 </mxCell>
                 <mxCell id="78" value="блэк джэк" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="-10" y="1050" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="-20" y="1010" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="83" style="edgeStyle=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="80" target="84" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
@@ -312,10 +319,10 @@
                 <mxCell id="102" value="ТРЕЙДЫ" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="420" y="870" width="120" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="128" style="edgeStyle=none;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="104" target="127">
+                <mxCell id="128" style="edgeStyle=none;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="104" target="127" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="130" style="edgeStyle=none;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="104" target="129">
+                <mxCell id="130" style="edgeStyle=none;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" parent="1" source="104" target="129" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="104" value="Возможность создавать гильдии и кланы с уникальными возможностями" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
@@ -346,13 +353,22 @@
                     <mxGeometry x="515" y="1480" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="124" value="уникальные фоны и возможность установить свой, обводка юзера и всякие бафы" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="120" y="-180" width="120" height="110" as="geometry"/>
+                    <mxGeometry x="-180" y="-230" width="120" height="110" as="geometry"/>
                 </mxCell>
-                <mxCell id="127" value="уникальные квесты" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                <mxCell id="127" value="уникальные квесты" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="900" y="-215" width="120" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="129" value="общая казна с люмкоинов и возможность приобритения и ранги&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
-                    <mxGeometry x="720" y="-355" width="120" height="100" as="geometry"/>
+                <mxCell id="129" value="общая казна с люмкоинов и возможность приобритения и ранги&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+                    <mxGeometry x="720" y="-350" width="120" height="100" as="geometry"/>
+                </mxCell>
+                <mxCell id="131" value="Давать больше опыта при общении друзей" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="530" y="-180" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="135" style="edgeStyle=none;html=1;" edge="1" parent="1" source="134" target="62">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="134" value="За PlLUMcoins" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="10" y="-45" width="120" height="60" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>

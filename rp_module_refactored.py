@@ -44,7 +44,7 @@ class RPConfig:
     DEFAULT_HP: int = 100
     MAX_HP: int = 150
     MIN_HP: int = 0 # Минимальное HP, при котором считается "без сознания"
-    HEAL_COOLDOWN_SECONDS: int = 1800  # 30 минут кулдаун на лечащие действия
+    HEAL_COOLDOWN_SECONDS: int = 120 
     HP_RECOVERY_TIME_SECONDS: int = 600 # 10 минут время восстановления из нокаута
     HP_RECOVERY_AMOUNT: int = 25 # Количество HP, восстанавливаемое за раз
 
@@ -59,12 +59,12 @@ class RPActions:
             "трахнуть": {"hp_change_target": +30, "hp_change_sender": +15},
             "поцеловать в щёчку": {"hp_change_target": +7, "hp_change_sender": +3},
             "прижать к себе": {"hp_change_target": +12, "hp_change_sender": +6},
-            "покормить": {"hp_change_target": +9, "hp_change_sender": -2}, # Отнимает у себя, даёт другому
+            "покормить": {"hp_change_target": +9, "hp_change_sender": -2},
             "напоить": {"hp_change_target": +6, "hp_change_sender": -1},
             "сделать массаж": {"hp_change_target": +15, "hp_change_sender": +3},
             "спеть песню": {"hp_change_target": +5, "hp_change_sender": +1},
-            "подарить цветы": {"hp_change_target": +12, "hp_change_sender": 0},
-            "подрочить": {"hp_change_target": +12, "hp_change_sender": +6},
+            "подарить цветы": {"hp_change_target": +12, "hp_change_sender": -12},
+            "подрочить": {"hp_change_target": +12, "hp_change_sender": 0},
             "полечить": {"hp_change_target": +25, "hp_change_sender": -5},
         },
         "нейтральные": {
@@ -92,7 +92,7 @@ class RPActions:
             "толкнуть сильно": {"hp_change_target": -9, "hp_change_sender": -1},
             "обозвать": {"hp_change_target": -5, "hp_change_sender": 0},
             "плюнуть": {"hp_change_target": -6, "hp_change_sender": 0},
-            "превратить": {"hp_change_target": -80, "hp_change_sender": -10}, # Очень сильное негативное действие
+            "превратить": {"hp_change_target": -80, "hp_change_sender": -10},
             "обидеть": {"hp_change_target": -7, "hp_change_sender": 0},
             "разозлиться": {"hp_change_target": -2, "hp_change_sender": -1},
             "испугаться": {"hp_change_target": -1, "hp_change_sender": 0},
@@ -386,17 +386,16 @@ async def _process_rp_action(
     new_sender_hp, sender_knocked_out = await _update_user_hp(profile_manager, sender_user.id, hp_change_sender_val)
 
 
-    # Формирование ответного сообщения
-    command_past = command
-    # Простая логика для изменения глагола на прошедшее время (для мужского/женского рода)
-    verb_ending_map = {"ть": "л", "ться": "лся"}
-    for infinitive_ending, past_ending_male in verb_ending_map.items():
-        if command.endswith(infinitive_ending):
-            base = command[:-len(infinitive_ending)]
-            command_past = base + random.choice([past_ending_male, base + "ла"]) # Случайный выбор рода
-            break
+    # Измененная логика для использования бесполых окончаний
+    # Здесь мы будем проверять, заканчивается ли глагол на "ть" и заменять его на "л(-а)"
+    command_display = command
+    if command.endswith("ть"):
+        command_display = command[:-2] + "л(-а)" # Например, "поцеловать" -> "поцеловал(-а)"
+    elif command.endswith("ться"):
+        command_display = command[:-3] + "л(-а)ся" # Например, "отмыться" -> "отмыл(-а)ся"
 
-    response_text = f"{sender_name} {command_past} {target_name}"
+
+    response_text = f"{sender_name} {command_display} {target_name}"
     if additional_text:
         response_text += f" {additional_text}"
 
@@ -569,15 +568,6 @@ async def periodic_hp_recovery_task(bot: Bot, profile_manager: ProfileManager, d
             logger.error(f"Error in periodic_hp_recovery_task: {e}", exc_info=True)
 
 def setup_rp_handlers(main_dp: Router, bot_instance: Bot, profile_manager_instance: ProfileManager, database_module: Any):
-    """
-    Настраивает RP-обработчики, включая их в главный диспетчер.
-
-    Args:
-        main_dp (Router): Главный диспетчер (или роутер) Aiogram.
-        bot_instance (Bot): Экземпляр бота.
-        profile_manager_instance (ProfileManager): Экземпляр менеджера профилей.
-        database_module (Any): Модуль базы данных (db).
-    """
     if not HAS_PROFILE_MANAGER:
         logging.error("Not setting up RP handlers because ProfileManager is missing.")
         return
