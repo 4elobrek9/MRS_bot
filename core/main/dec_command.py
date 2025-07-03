@@ -1,9 +1,41 @@
 from core.main.ez_main import *
 from core.main.ollama import *
-from core.main.command import *
-from core.main.dec_command import *
-# --- Обработчики команд ---
+from main import *
 
+@dp.message(Command("start"))
+async def cmd_start(message: Message, profile_manager: ProfileManager):
+    user = message.from_user
+    if not user:
+        logger.warning("Received start command without user info.")
+        return
+
+    # Убеждаемся, что пользователь существует в БД и логируем взаимодействие
+    await db.ensure_user_exists(user.id, user.username, user.first_name)
+    await db.log_user_interaction(user.id, "start_command", "command")
+
+    # Получаем или создаем игровой профиль (если group_stat активен)
+    profile = await profile_manager.get_user_profile(user)
+    if not profile:
+        logger.error(f"Failed to get profile for user {user.id} after start.")
+        # Несмотря на ошибку профиля, продолжаем, чтобы бот хоть как-то отвечал
+        pass
+
+    response_text = (
+        f"Привет, {hbold(user.first_name)}! Я ваш личный ИИ-помощник и многоликий собеседник. "
+        "Я могу говорить с вами в разных режимах. Чтобы сменить режим, используйте команду /mode.\n\n"
+        "Вот что я умею:\n"
+        "✨ /mode - Показать доступные режимы и сменить текущий.\n"
+        "📊 /stats - Показать вашу статистику использования.\n"
+        "🤣 /joke - Рассказать случайный анекдот.\n"
+        "🔍 /check_value - Проверить значение из файла (если настроено).\n"
+        "🔔 /subscribe_value - Подписаться на уведомления об изменении значения.\n"
+        "🔕 /unsubscribe_value - Отписаться от уведомлений.\n"
+        "👤 /profile - Показать ваш игровой профиль (если есть, регистрируется в group_stat).\n"
+        "⚒️ /rp_commands - Показать список RP-действий (регистрируется в rp_module_refactored).\n"
+        "❤️ /hp - Показать ваше текущее HP (в RP-модуле, регистрируется в rp_module_refactored).\n"
+        "✍️ Просто пишите мне, и я буду отвечать в текущем режиме!"
+    )
+    await message.answer(response_text, parse_mode=ParseMode.HTML)
 
 @dp.message(Command("mode"))
 async def cmd_mode(message: Message):
@@ -90,6 +122,10 @@ async def voice_handler_msg(message: Message):
 
 @dp.message(F.chat.type == ChatType.PRIVATE, F.text)
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):
+    """
+    Основной обработчик текстовых сообщений в приватных чатах.
+    Взаимодействует с Ollama, управляет режимами и стикерами, логирует историю.
+    """
     user_id = message.from_user.id
     
     # Убеждаемся, что пользователь есть в базе данных
@@ -168,176 +204,3 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
             with suppress(Exception): await typing_msg.edit_text(error_msg_text)
         else:
             await safe_send_message(message.chat.id, error_msg_text)
-
-# --- Обработчики Callback Query ---
-
-@dp.callback_query(F.data.startswith("set_mode_"))
-async def callback_set_mode(callback_query: CallbackQuery):
-    """Обработчик для изменения режима бота через инлайн-кнопки."""
-    new_mode = callback_query.data.split("_")[-1]
-    user_id = callback_query.from_user.id
-    await db.set_user_current_mode(user_id, new_mode) # Обновляем режим в БД
-    await callback_query.message.edit_text(f"Режим изменен на: `{new_mode.capitalize()}`")
-    await callback_query.answer() # Убираем "часики" с кнопки
-    await db.reset_user_rating_opportunity_count(user_id) # Сбрасываем счетчик оценок при смене режима
-    await db.log_user_interaction(user_id, new_mode, "callback_set_mode")
-
-@dp.callback_query(F.data.startswith(("rate_1:", "rate_0:")))
-async def callback_rate_response(callback_query: CallbackQuery):
-    """Обработчик для кнопок оценки ответа бота (лайк/дизлайк)."""
-    data_parts = callback_query.data.split(":")
-    rating_value = int(data_parts[0].split("_")[1]) # 1 для лайка, 0 для дизлайка
-    message_id = int(data_parts[1]) # ID сообщения бота, которое оценили
-    message_preview = data_parts[2] # Предпросмотр текста сообщения пользователя, к которому был ответ
-
-    user_id = callback_query.from_user.id
-
-    # Логируем оценку в БД
-    await db.log_user_rating(user_id, rating_value, message_preview, rated_message_id=message_id)
-
-    # Удаляем кнопки оценки после того, как пользователь нажал на них
-    await callback_query.message.edit_reply_markup(reply_markup=None)
-    await callback_query.answer(text="Спасибо за вашу оценку!")
-    await db.log_user_interaction(user_id, "rating_callback", "callback")
-
-    # Логика пересылки дизлайка администратору
-    if rating_value == 0 and ADMIN_USER_ID:
-        logger.info(f"Dislike received from user {user_id} (@{callback_query.from_user.username}). Forwarding dialog to admin {ADMIN_USER_ID}.")
-        
-        # Получаем последние 10 записей истории диалога для контекста
-        dialog_entries = await db.get_user_dialog_history(user_id, limit=10)
-        
-        if not dialog_entries:
-            await safe_send_message(ADMIN_USER_ID, f"⚠️ Пользователь {hbold(callback_query.from_user.full_name)} (ID: {hcode(str(user_id))}, @{callback_query.from_user.username or 'нет'}) поставил дизлайк, но история диалога пуста.")
-            return
-
-        # Определяем режим, в котором бот дал дизлайкнутый ответ
-        last_bot_entry_mode = "неизвестен"
-        for entry in reversed(dialog_entries): # Идем с конца, чтобы найти последний ответ бота
-            if entry['role'] == 'assistant':
-                last_bot_entry_mode = entry.get('mode', 'неизвестен')
-                break
-        
-        # Формируем сообщение для администратора
-        formatted_dialog = f"👎 Дизлайк от {hbold(callback_query.from_user.full_name)} (ID: {hcode(str(user_id))}, @{callback_query.from_user.username or 'нет'}).\n"
-        formatted_dialog += f"Сообщение бота (режим {hitalic(last_bot_entry_mode)}):\n{hcode(message_preview)}\n\n"
-        formatted_dialog += "📜 История диалога (последние сообщения):\n"
-        
-        full_dialog_text = ""
-        for entry in dialog_entries:
-            # Форматируем временную метку
-            ts = datetime.fromtimestamp(entry['timestamp'], tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
-            role_emoji = "👤" if entry['role'] == 'user' else "🤖"
-            mode_info = f" ({entry.get('mode', '')})" if entry['role'] == 'assistant' else ""
-            full_dialog_text += f"{role_emoji} {entry['role'].capitalize()}{mode_info}: {entry['content']}\n"
-        
-        final_report = formatted_dialog + "```text\n" + full_dialog_text + "\n```"
-        
-        # Отправляем сообщение администратору, разбивая на части, если слишком длинное
-        max_len = 4000 # Максимальная длина сообщения в Telegram
-        if len(final_report) > max_len:
-            parts = [final_report[i:i + max_len] for i in range(0, len(final_report), max_len)]
-            for i, part_text in enumerate(parts):
-                part_header = f"Часть {i+1}/{len(parts)}:\n" if len(parts) > 1 else ""
-                await safe_send_message(ADMIN_USER_ID, part_header + part_text, parse_mode=ParseMode.HTML)
-        else:
-            await safe_send_message(ADMIN_USER_ID, final_report, parse_mode=ParseMode.HTML)
-
-
-# --- Основная функция запуска бота ---
-
-async def main():
-    """Главная асинхронная функция для запуска бота."""
-    # Инициализация ProfileManager (для group_stat и RP-модуля)
-    profile_manager = ProfileManager()
-    try:
-        if hasattr(profile_manager, 'connect'):
-            await profile_manager.connect()
-        logger.info("ProfileManager connected.")
-    except Exception as e:
-        logger.critical(f"Failed to connect ProfileManager: {e}", exc_info=True)
-        # Если ProfileManager не смог подключиться, бот может продолжить работу,
-        # но функционал, зависящий от него, будет ограничен/отключен.
-
-    # Инициализация основной базы данных (для общего функционала бота)
-    await db.initialize_database()
-
-    # Инициализация StickerManager и загрузка стикеров
-    sticker_manager_instance = StickerManager(cache_file_path=STICKERS_CACHE_FILE)
-    await sticker_manager_instance.fetch_stickers(bot)
-
-    # Передача зависимостей в диспетчер для удобства доступа в обработчиках
-    dp["profile_manager"] = profile_manager
-    dp["sticker_manager"] = sticker_manager_instance
-    dp["bot_instance"] = bot
-
-    # Регистрация основных обработчиков, определенных в main.py
-    dp.message(Command("start"))(cmd_start)
-    dp.message(Command("mode"))(cmd_mode)
-    dp.message(Command("stats"))(cmd_stats)
-    dp.message(Command("joke"))(cmd_joke)
-    dp.message(Command("check_value"))(cmd_check_value)
-    dp.message(Command("subscribe_value", "val"))(cmd_subscribe_value)
-    dp.message(Command("unsubscribe_value", "sval"))(cmd_unsubscribe_value)
-    dp.message(F.photo)(photo_handler)
-    dp.message(F.voice)(voice_handler_msg)
-    
-    # Настройка и включение роутеров из других модулей
-    setup_rp_handlers(
-        main_dp=dp,
-        bot_instance=bot,
-        profile_manager_instance=profile_manager,
-        database_module=db # Передаем db, так как RP-модуль его использует
-    )
-    setup_stat_handlers(
-        dp=dp,
-        bot=bot,
-        profile_manager=profile_manager
-    )
-
-    # Общий обработчик текстовых сообщений в приватных чатах
-    dp.message(F.chat.type == ChatType.PRIVATE, F.text)(handle_text_message)
-
-    # Обработчики Callback Query
-    dp.callback_query(F.data.startswith("set_mode_"))(callback_set_mode)
-    dp.callback_query(F.data.startswith(("rate_1:", "rate_0:")))(callback_rate_response)
-
-    # Запуск фоновых задач
-    jokes_bg_task = asyncio.create_task(jokes_task(bot))
-    rp_recovery_bg_task = asyncio.create_task(periodic_hp_recovery_task(bot, profile_manager, db))
-
-    # censor_module.setup_censor_handlers(dp, bot, profile_manager, BAD_WORDS_FILE)
-    logger.info("Starting bot polling...")
-    try:
-        # Запуск поллинга Aiogram
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-    except Exception as e:
-        logger.critical(f"Bot polling failed: {e}", exc_info=True)
-    finally:
-        logger.info("Stopping bot...")
-        jokes_bg_task.cancel()
-        rp_recovery_bg_task.cancel()
-
-        try:
-            # Ожидание завершения фоновых задач
-            await asyncio.gather(monitoring_bg_task, jokes_bg_task, rp_recovery_bg_task, return_exceptions=True)
-            logger.info("Background tasks gracefully cancelled.")
-        except asyncio.CancelledError:
-            logger.info("Background tasks were cancelled during shutdown.")
-        
-        # Закрытие соединения ProfileManager, если оно было открыто
-        if hasattr(profile_manager, 'close'):
-            await profile_manager.close()
-            logger.info("ProfileManager connection closed.")
-
-        # Закрытие сессии бота
-        await bot.session.close()
-        logger.info("Bot session closed. Exiting.")
-
-if __name__ == '__main__':
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped manually by user (KeyboardInterrupt).")
-    except Exception as e:
-        logger.critical(f"Unhandled exception in main execution: {e}", exc_info=True)

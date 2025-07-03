@@ -15,7 +15,6 @@ import random
 import aiohttp
 from aiogram.types import BufferedInputFile
 
-# Импортируем функции из database.py
 from database import get_user_rp_stats, ensure_user_exists, get_user_profile_info
 
 formatter = string.Formatter()
@@ -106,7 +105,7 @@ class ProfileConfig:
     FONT_SIZE_SMALL = 16
 
 
-def init_db_sync_profiles(): # Переименовал, чтобы не конфликтовать с init_db из database.py
+def init_db_sync_profiles():
     logger.info("Attempting to initialize profiles database (sync).")
     if not os.path.exists('profiles.db'):
         logger.info("profiles.db not found, creating new database.")
@@ -143,7 +142,7 @@ def init_db_sync_profiles(): # Переименовал, чтобы не кон�
     else:
         logger.info("Database profiles.db already exists, skipping sync initialization.")
 
-init_db_sync_profiles() # Вызываем синхронную инициализацию при старте
+init_db_sync_profiles()
 
 
 class ProfileManager:
@@ -218,7 +217,6 @@ class ProfileManager:
             logger.error("Database connection is not established when trying to get user profile.")
             raise RuntimeError("Database connection is not established.")
         
-        # Ensure user exists in the main 'users' table in profiles.db
         cursor = await self._conn.cursor()
         await cursor.execute('''
             INSERT INTO users (user_id, username, first_name, last_name)
@@ -231,7 +229,6 @@ class ProfileManager:
         await self._conn.commit()
         logger.debug(f"User {user.id} information updated/inserted in 'profiles.db users' table.")
         
-        # Ensure user profile exists in 'user_profiles' table
         user_id = user.id
         await cursor.execute('''
         INSERT OR IGNORE INTO user_profiles (user_id)
@@ -256,7 +253,6 @@ class ProfileManager:
         profile_data['display_name'] = f"@{user.username}" if user.username else user.full_name 
         logger.debug(f"Display name set to: {profile_data['display_name']} for user {user.id}.")
         
-        # Получаем HP из database.py
         rp_stats = await get_user_rp_stats(user_id)
         if rp_stats:
             profile_data['hp'] = rp_stats.get('hp', ProfileConfig.MAX_HP)
@@ -275,7 +271,6 @@ class ProfileManager:
             logger.error("Database connection is not established when trying to record message.")
             raise RuntimeError("Database connection is not established.")
         
-        # Ensure user exists in the main 'users' table in profiles.db
         cursor = await self._conn.cursor()
         await cursor.execute('''
             INSERT INTO users (user_id, username, first_name, last_name)
@@ -578,7 +573,7 @@ class ProfileManager:
         level = profile.get('level', 1)
         exp = profile.get('exp', 0)
         lumcoins = profile.get('lumcoins', 0)
-        hp = profile.get('hp', 100) # HP теперь берется из профиля, который уже включает HP из database.py
+        hp = profile.get('hp', 100)
         total_messages = profile.get('total_messages', 0)
         flames = profile.get('flames', 0)
         logger.debug(f"Profile data for image: Display Name: {display_name}, Level: {level}, EXP: {exp}, Lumcoins: {lumcoins}, HP: {hp}.")
@@ -746,14 +741,12 @@ class ProfileManager:
         await self._conn.commit()
         logger.info(f"User {user_id} level set to {level} with exp {needed_exp}.")
 
-    # Эта функция теперь будет использовать update_user_rp_stats из database.py
     async def set_hp(self, user_id: int, hp_value: int):
         logger.debug(f"Attempting to set HP for user {user_id} to {hp_value} via database.py.")
         hp_value = max(ProfileConfig.MIN_HP, min(hp_value, ProfileConfig.MAX_HP)) 
         await self.update_user_rp_stats(user_id, hp=hp_value)
         logger.info(f"User {user_id} HP set to {hp_value} via database.py.")
 
-    # Добавляем метод для обновления RP-статистики через database.py
     async def update_user_rp_stats(self, user_id: int, **kwargs: Optional[Any]) -> None:
         from database import update_user_rp_stats as db_update_user_rp_stats
         await db_update_user_rp_stats(user_id, **kwargs)
@@ -822,7 +815,6 @@ class ProfileManager:
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"Received /profile command from user {message.from_user.id}.")
     
-    # Убедимся, что пользователь существует в database.py, чтобы получить его HP
     await ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
 
     profile = await profile_manager.get_user_profile(message.from_user)
@@ -899,7 +891,7 @@ async def buy_background(message: types.Message, profile_manager: ProfileManager
 async def show_top(message: types.Message, profile_manager: ProfileManager):
     logger.info(f"Received 'топ' command from user {message.from_user.id}.")
     args = message.text.lower().split()
-    top_type = "уровень" # default
+    top_type = "уровень"
 
     if len(args) > 1:
         if "уровень" in args:
@@ -941,7 +933,6 @@ async def track_message_activity(message: types.Message, profile_manager: Profil
     
     user_id = message.from_user.id
     
-    # Перед записью сообщения, убедимся что пользователь есть в database.py
     await ensure_user_exists(user_id, message.from_user.username, message.from_user.first_name)
 
     old_profile = await profile_manager.get_user_profile(message.from_user)
