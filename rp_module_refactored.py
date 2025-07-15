@@ -39,10 +39,17 @@ rp_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
 class RPConfig:
     DEFAULT_HP: int = 100
     MAX_HP: int = 150
+<<<<<<< HEAD
     MIN_HP: int = 0
     HEAL_COOLDOWN_SECONDS: int = 120 
     HP_RECOVERY_TIME_SECONDS: int = 600
     HP_RECOVERY_AMOUNT: int = 25
+=======
+    MIN_HP: int = 0 # Минимальное HP, при котором считается "без сознания"
+    HEAL_COOLDOWN_SECONDS: int = 120 
+    HP_RECOVERY_TIME_SECONDS: int = 600 # 10 минут время восстановления из нокаута
+    HP_RECOVERY_AMOUNT: int = 25 # Количество HP, восстанавливаемое за раз
+>>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
 
 class RPActions:
     INTIMATE_ACTIONS: Dict[str, Dict[str, Dict[str, int]]] = {
@@ -304,7 +311,19 @@ async def _process_rp_action(
     elif command.endswith("ться"):
         command_display = command[:-3] + "л(-а)ся"
 
+<<<<<<< HEAD
 
+=======
+    # Измененная логика для использования бесполых окончаний
+    # Здесь мы будем проверять, заканчивается ли глагол на "ть" и заменять его на "л(-а)"
+    command_display = command
+    if command.endswith("ть"):
+        command_display = command[:-2] + "л(-а)" # Например, "поцеловать" -> "поцеловал(-а)"
+    elif command.endswith("ться"):
+        command_display = command[:-3] + "л(-а)ся" # Например, "отмыться" -> "отмыл(-а)ся"
+
+
+>>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
     response_text = f"{sender_name} {command_display} {target_name}"
     if additional_text:
         response_text += f" {additional_text}"
