@@ -12,7 +12,7 @@ stat_router = Router(name="stat_router")
 # Это позволит обрабатывать как "/профиль", так и просто "профиль".
 @stat_router.message(F.text.lower().startswith(("профиль", "/профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
-    logger.info(f"Received 'профиль' command/text from user {message.from_user.id}.")
+    logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
     
     await ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
 

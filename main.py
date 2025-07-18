@@ -6,6 +6,12 @@ import censor_module # Импорт модуля цензуры
 from pathlib import Path # Импорт Path для BAD_WORDS_FILE
 from core.group.RP.actions import RPActions # Импорт RPActions для получения списка команд
 
+# Импорт конкретных обработчиков для прямого вызова
+# Исправлен путь импорта для group_stat, так как он находится в корневой директории
+from group_stat import show_profile, do_work, show_shop, show_top 
+from rp_module_refactored import cmd_check_self_hp, cmd_show_rp_actions_list, handle_rp_action_via_text
+
+
 # --- Обработчики команд ---
 
 
@@ -44,18 +50,36 @@ async def main():
     dp["sticker_manager"] = sticker_manager_instance
     dp["bot_instance"] = bot
 
+    # Определяем обработчики для прямого вызова модулем цензуры
+    # Ключ: текст команды (в нижнем регистре), Значение: (функция-обработчик, список_необходимых_аргументов)
+    # Аргументы будут динамически передаваться: message, bot, profile_manager, command_text_payload (для RP)
+    direct_dispatch_handlers = {
+        "профиль": (show_profile, ["message", "profile_manager", "bot"]),
+        "работать": (do_work, ["message", "profile_manager"]),
+        "магазин": (show_shop, ["message", "profile_manager"]),
+        "топ": (show_top, ["message", "profile_manager"]),
+        "моё хп": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
+        "мое хп": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
+        "моё здоровье": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
+        "мое здоровье": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
+        "хп": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
+        "здоровье": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
+        "список действий": (cmd_show_rp_actions_list, ["message", "bot"]),
+        "рп действия": (cmd_show_rp_actions_list, ["message", "bot"]),
+        "список рп": (cmd_show_rp_actions_list, ["message", "bot"]),
+        "команды рп": (cmd_show_rp_actions_list, ["message", "bot"]),
+    }
+
+    # Добавляем все простые RP-действия из RPActions для прямого вызова
+    for action in RPActions.SORTED_COMMANDS_FOR_PARSING:
+        # Убеждаемся, что не перезаписываем уже существующие специфичные обработчики
+        if action not in direct_dispatch_handlers:
+            direct_dispatch_handlers[action] = (handle_rp_action_via_text, ["message", "bot", "profile_manager", "command_text_payload"])
+
     # Список не-слеш команд, которые цензор должен игнорировать
-    # Собираем все известные не-слеш команды из разных модулей
-    non_slash_commands_to_exclude = [
-        "профиль", "работать", "магазин", "топ", # Из group_stat.py
-        "моё хп", "мое хп", "моё здоровье", "мое здоровье", "хп", "здоровье", # Из rp_module_refactored.py
-        "список действий", "рп действия", "список рп", "команды рп", # Из rp_module_refactored.py
-    ]
-    # Добавляем все RP-действия из RPActions
-    non_slash_commands_to_exclude.extend(RPActions.SORTED_COMMANDS_FOR_PARSING)
-    # Удаляем дубликаты и приводим к нижнему регистру
-    non_slash_commands_to_exclude = list(set([cmd.lower() for cmd in non_slash_commands_to_exclude]))
-    # Сортируем по длине в убывающем порядке, чтобы более длинные команды проверялись первыми (например, "моё хп" раньше "хп")
+    # Собираем все ключи из direct_dispatch_handlers, так как они теперь будут обрабатываться напрямую
+    non_slash_commands_to_exclude = list(direct_dispatch_handlers.keys())
+    # Сортируем по длине в убывающем порядке, чтобы более длинные команды проверялись первыми
     non_slash_commands_to_exclude.sort(key=len, reverse=True)
 
     # *** ВАЖНОЕ: censor_module должен быть включен ПЕРВЫМ в dp! ***
@@ -64,7 +88,10 @@ async def main():
     censor_module.setup_censor_handlers(
         main_dp=dp,
         bad_words_file_path=BAD_WORDS_FILE,
-        non_slash_command_prefixes=non_slash_commands_to_exclude
+        non_slash_command_prefixes=non_slash_commands_to_exclude,
+        direct_dispatch_handlers=direct_dispatch_handlers, # Передаем словарь для прямого вызова
+        profile_manager_instance=profile_manager, # Передаем profile_manager
+        bot_instance=bot # Передаем bot
     )
     logger.info("main: Модуль цензуры успешно интегрирован.")
 
@@ -73,12 +100,12 @@ async def main():
     # и не являются командами (т.к. команды обрабатываются Command-фильтрами напрямую или пропускаются цензором).
     group_text_router = Router(name="group_text_router")
     group_text_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
-    # Удалена строка group_text_router.message.filter(~Command()), так как она вызывала ошибку
-    # и является избыточной, потому что censor_module уже пропускает команды.
     logger.info("main: Создан роутер для групповых текстовых сообщений.")
 
     # Включаем stat_router в group_text_router
     # Это позволит командам из group_stat (например, "профиль" без '/') работать в группах.
+    # Однако, для команд, которые теперь обрабатываются напрямую цензором, эти обработчики
+    # в stat_router и rp_router уже не будут вызываться.
     logger.info("main: Включение stat_router в group_text_router.")
     setup_stat_handlers(
         dp=group_text_router, # Передаем group_text_router вместо dp

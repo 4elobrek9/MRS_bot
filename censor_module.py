@@ -2,13 +2,13 @@ import random
 import re
 from pathlib import Path
 import logging
-from typing import List, Tuple, Any
+from typing import List, Tuple, Any, Dict, Callable, Awaitable # Добавлены Callable, Awaitable
+import asyncio
+from contextlib import suppress
 from aiogram import Router, types, F, Bot
 from aiogram.exceptions import TelegramAPIError
 from aiogram.utils.markdown import hbold
 from aiogram.enums import ParseMode, ChatType
-import asyncio
-from contextlib import suppress
 
 # Настройка логгера для модуля цензуры
 logger = logging.getLogger(__name__)
@@ -18,6 +18,12 @@ BAD_WORD_ROOTS: List[str] = []
 
 # Глобальная переменная для хранения списка команд, которые должны игнорироваться цензором
 NON_SLASH_COMMAND_PREFIXES: List[str] = []
+
+# Глобальные переменные для прямого вызова обработчиков
+DIRECT_DISPATCH_HANDLERS: Dict[str, Tuple[Callable[..., Awaitable[Any]], List[str]]] = {}
+GLOBAL_PROFILE_MANAGER: Any = None
+GLOBAL_BOT: Any = None
+
 
 def load_bad_words(filepath: Path) -> List[str]:
     """
@@ -160,8 +166,7 @@ async def censor_message_handler(message: types.Message, bot: Bot):
         # по цепочке обработчиков, где ее подхватит соответствующий Command-обработчик.
         return 
 
-    # Пропускаем сообщения, которые являются известными не-слеш командами
-    # Проверяем команды от самых длинных к самым коротким, чтобы избежать частичных совпадений
+    # Проверяем, является ли сообщение известной не-слеш командой для прямого вызова
     for cmd_prefix in NON_SLASH_COMMAND_PREFIXES:
         if original_text_lower.startswith(cmd_prefix):
             # Дополнительная проверка, чтобы убедиться, что это именно команда, а не часть другого слова
@@ -169,8 +174,31 @@ async def censor_message_handler(message: types.Message, bot: Bot):
             # Проверяем, что после команды идет пробел, или это конец строки
             if len(original_text_lower) == len(cmd_prefix) or \
                (len(original_text_lower) > len(cmd_prefix) and original_text_lower[len(cmd_prefix)].isspace()):
-                logger.debug(f"censor_message_handler: Сообщение '{original_text}' является известной не-слеш командой '{cmd_prefix}'. Пропускаем цензуру.")
-                return
+                
+                logger.debug(f"censor_message_handler: Сообщение '{original_text}' является известной не-слеш командой '{cmd_prefix}'. Попытка прямого вызова обработчика.")
+                
+                if cmd_prefix in DIRECT_DISPATCH_HANDLERS:
+                    handler_func, required_args_names = DIRECT_DISPATCH_HANDLERS[cmd_prefix]
+                    
+                    # Подготавливаем аргументы для обработчика
+                    handler_args = {}
+                    if "message" in required_args_names:
+                        handler_args["message"] = message
+                    if "bot" in required_args_names and GLOBAL_BOT:
+                        handler_args["bot"] = GLOBAL_BOT
+                    if "profile_manager" in required_args_names and GLOBAL_PROFILE_MANAGER:
+                        handler_args["profile_manager"] = GLOBAL_PROFILE_MANAGER
+                    if "command_text_payload" in required_args_names:
+                        handler_args["command_text_payload"] = original_text # Передаем полный текст как payload
+
+                    try:
+                        await handler_func(**handler_args)
+                        logger.info(f"censor_message_handler: Прямой вызов обработчика для '{cmd_prefix}' успешно выполнен. Завершение обработки сообщения.")
+                        return # Останавливаем дальнейшую обработку после прямого вызова
+                    except Exception as e:
+                        logger.error(f"censor_message_handler: Ошибка при прямом вызове обработчика для '{cmd_prefix}': {e}", exc_info=True)
+                        await message.reply(f"❌ Произошла ошибка при обработке команды '{cmd_prefix}'.")
+                        return # Возвращаемся после ошибки, чтобы избежать дальнейшей обработки
 
     if not BAD_WORD_ROOTS:
         logger.debug("censor_message_handler: Список 'плохих' слов пуст. Сообщение не проверяется на цензуру. Пропускаем обработку.")
@@ -215,11 +243,19 @@ async def censor_message_handler(message: types.Message, bot: Bot):
         return # Если цензура не сработала, возвращаем None, чтобы сообщение продолжило распространение
                # к другим обработчикам (например, F.text.lower().startswith("профиль") в stat_router).
 
-def setup_censor_handlers(main_dp: Router, bad_words_file_path: Path, non_slash_command_prefixes: List[str]):
+def setup_censor_handlers(
+    main_dp: Router, 
+    bad_words_file_path: Path, 
+    non_slash_command_prefixes: List[str],
+    direct_dispatch_handlers: Dict[str, Tuple[Callable[..., Awaitable[Any]], List[str]]],
+    profile_manager_instance: Any,
+    bot_instance: Any
+):
     """
     Настраивает модуль цензуры: загружает "плохие" слова и включает
     роутер цензуры в главный диспетчер Aiogram.
-    Также принимает список не-слеш команд, которые цензор должен игнорировать.
+    Также принимает список не-слеш команд, которые цензор должен игнорировать
+    и словарь для прямого вызова обработчиков.
     """
     logger.debug(f"setup_censor_handlers: Начата настройка модуля цензуры.")
     global BAD_WORD_ROOTS
@@ -229,6 +265,15 @@ def setup_censor_handlers(main_dp: Router, bad_words_file_path: Path, non_slash_
     # Сортируем по длине в убывающем порядке, чтобы более длинные команды проверялись первыми (например, "моё хп" раньше "хп")
     NON_SLASH_COMMAND_PREFIXES = sorted([cmd.lower() for cmd in non_slash_command_prefixes], key=len, reverse=True) 
     logger.debug(f"setup_censor_handlers: Загружены не-слеш команды для игнорирования цензором: {NON_SLASH_COMMAND_PREFIXES}")
+
+    global DIRECT_DISPATCH_HANDLERS
+    DIRECT_DISPATCH_HANDLERS = direct_dispatch_handlers
+    
+    global GLOBAL_PROFILE_MANAGER
+    GLOBAL_PROFILE_MANAGER = profile_manager_instance
+
+    global GLOBAL_BOT
+    GLOBAL_BOT = bot_instance
 
     logger.debug("setup_censor_handlers: Включение censor_router в главный диспетчер.")
     main_dp.include_router(censor_router)
