@@ -5,302 +5,231 @@ import logging
 from typing import List, Tuple, Any
 from aiogram import Router, types, F, Bot
 from aiogram.exceptions import TelegramAPIError
-<<<<<<< HEAD
 from aiogram.utils.markdown import hbold
-from aiogram.enums import ParseMode
+from aiogram.enums import ParseMode, ChatType
 import asyncio
-import time
-import random
-import logging
-from typing import Dict, Any, Optional, List, Tuple, Set
-import aiosqlite
-from aiogram import Router, types, F, Bot
-from aiogram.enums import ChatType, ParseMode, MessageEntityType
-from aiogram.filters import Command
-from aiogram.exceptions import TelegramAPIError
 from contextlib import suppress
-import database as db
-logger = logging.getLogger(__name__)
-BAD_WORDS_FILE = Path("data") / "bad_words.txt"
 
-BAD_WORD_ROOTS: List[str] = []
-
-def load_bad_words(filepath: Path) -> List[str]:
-=======
-from aiogram.utils.markdown import hbold # Предполагаем, что hbold доступен
-from aiogram.enums import ParseMode # ИМПОРТИРОВАНО ИЗ aiogram.enums
-
+# Настройка логгера для модуля цензуры
 logger = logging.getLogger(__name__)
 
 # Глобальная переменная для хранения корней "плохих" слов
 BAD_WORD_ROOTS: List[str] = []
 
+# Глобальная переменная для хранения списка команд, которые должны игнорироваться цензором
+NON_SLASH_COMMAND_PREFIXES: List[str] = []
+
 def load_bad_words(filepath: Path) -> List[str]:
     """
-    Загружает корни слов для цензуры из указанного файла.
-    
-    Args:
-        filepath (Path): Путь к файлу со словами.
-        
-    Returns:
-        List[str]: Список корней слов.
+    Загружает список "плохих" слов из указанного файла.
     """
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
+    logger.debug(f"censor_module.load_bad_words: Попытка загрузить слова из файла: {filepath}")
     try:
         if not filepath.exists():
-            logger.warning(f"Файл со 'злыми' словами '{filepath}' не найден. Цензура слов отключена.")
+            logger.warning(f"censor_module.load_bad_words: Файл со 'злыми' словами '{filepath}' не найден. Цензура слов отключена.")
             return []
+        
         with open(filepath, 'r', encoding='utf-8') as f:
             words = [line.strip().lower() for line in f if line.strip()]
-        logger.info(f"Загружено {len(words)} корней 'злых' слов из {filepath}.")
-<<<<<<< HEAD
-=======
-        # logger.debug(f"Загруженные слова: {words}") # Только для очень детальной отладки
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
+        
+        logger.info(f"censor_module.load_bad_words: Успешно загружено {len(words)} корней 'злых' слов из {filepath}.")
         return words
     except Exception as e:
-        logger.error(f"Ошибка загрузки 'злых' слов из {filepath}: {e}", exc_info=True)
+        logger.error(f"censor_module.load_bad_words: Ошибка при загрузке 'злых' слов из {filepath}: {e}", exc_info=True)
         return []
 
 def generate_random_symbols(length: int) -> str:
-<<<<<<< HEAD
+    """
+    Генерирует случайную строку из спецсимволов заданной длины.
+    """
     symbols = "@#$%^&"
     if not symbols:
+        logger.warning("censor_module.generate_random_symbols: Список доступных символов для цензуры пуст. Возвращена пустая строка.")
         return ""
 
-=======
-    """
-    Генерирует строку из случайных символов заданной длины,
-    избегая повторения одного и того же символа подряд.
-    
-    Args:
-        length (int): Длина генерируемой строки.
-        
-    Returns:
-        str: Строка из случайных символов.
-    """
-    # Используем символы, которые выглядят как случайный набор для цензуры
-    symbols = "@#$%^&" 
-    if not symbols: # Проверка на случай, если symbols пуст
-        return ""
-    
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
     censored_chars = []
     last_char = None
 
     for _ in range(length):
-<<<<<<< HEAD
         available_symbols = [s for s in symbols if s != last_char]
         if not available_symbols:
             available_symbols = list(symbols)
 
-=======
-        # Создаем список доступных символов, исключая последний использованный
-        available_symbols = [s for s in symbols if s != last_char]
-        
-        # Если остался только один символ и он совпадает с last_char,
-        # или если symbols содержит только один символ,
-        # то придется повторить символ.
-        if not available_symbols:
-            available_symbols = list(symbols)
-        
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
         current_char = random.choice(available_symbols)
         censored_chars.append(current_char)
         last_char = current_char
         
-    return ''.join(censored_chars)
+    result = ''.join(censored_chars)
+    logger.debug(f"censor_module.generate_random_symbols: Сгенерированы случайные символы длиной {length}: '{result}'")
+    return result
 
-def censor_text_func(text: str, bad_roots: List[str]) -> Tuple[str, bool]:
-<<<<<<< HEAD
-    logger.debug(f"censor_text_func called with text: '{text}', bad_roots: {bad_roots}")
+def censor_text_func(text: str, bad_roots: List[str]) -> Tuple[str, bool, List[str]]:
+    """
+    Основная функция цензуры текста. Ищет "плохие" корни слов в тексте
+    и заменяет их случайными символами.
+    Изменена логика для цензурирования ВСЕГО слова, содержащего корень.
+    """
+    logger.debug(f"censor_module.censor_text_func: Начата обработка текста: '{text}' с корнями: {bad_roots}")
     
     if not bad_roots:
-        return text, False
+        logger.debug("censor_module.censor_text_func: Список 'плохих' слов пуст. Цензура не выполняется.")
+        return text, False, []
 
     patterns = []
     for root in bad_roots:
-        # Создаем очень агрессивное регулярное выражение для каждого корня.
-        # Оно позволяет:
-        # 1. Повторять буквы (например, "f" или "fff") с помощью `+`.
-        # 2. Любым символам, которые НЕ являются буквенно-цифровыми, находиться между буквами `[^\w]*`.
-        #    Это позволяет пропускать точки, звездочки, пробелы, дефисы и т.д.
-        #    Используем `\W` (небуквенный символ) вместо `[^\w\s]` для большей агрессивности,
-        #    так как `\W` включает пробелы.
-        # 3. Общая структура: `(char1+)(\W*)(char2+)(\W*)...`
-        
-        pattern_pieces = []
+        # Строим агрессивное регулярное выражение для каждого корня.
+        # Пример: для корня "шлю" будет создан паттерн "ш+\W*л+\W*ю+"
+        root_pattern_inner = ""
         for char in root:
-            pattern_pieces.append(re.escape(char) + '+')
-            pattern_pieces.append(r'\W*') # Allow any non-word characters (including spaces)
+            # Экранируем спецсимволы в корне и добавляем '+' для повторений символа
+            root_pattern_inner += re.escape(char) + '+'
+            # Добавляем \W* для игнорирования небуквенных символов между буквами корня (например, "м@т")
+            root_pattern_inner += r'\W*' 
+        # Удаляем лишний \W* в конце, если он есть
+        root_pattern_inner = root_pattern_inner.rstrip(r'\W*')
 
-        # Join pieces and remove the last separator if it exists
-        regex_pattern_str = ''.join(pattern_pieces).rstrip(r'\W*')
-        
-        patterns.append(f"({regex_pattern_str})") 
+        # Паттерн для захвата ВСЕГО слова, содержащего корень
+        # \b - граница слова (гарантирует, что мы ищем целое слово)
+        # (?:\w*{root_pattern_inner}\w*) - не-захватывающая группа, которая ищет
+        #   \w* - ноль или более "буквенных" символов до корня
+        #   {root_pattern_inner} - сам агрессивный паттерн корня
+        #   \w* - ноль или более "буквенных" символов после корня
+        full_word_pattern = rf"\b(?:\w*{root_pattern_inner}\w*)\b"
+        patterns.append(full_word_pattern)
 
-    # Объединяем все шаблоны в один regex с использованием OR `|`
     combined_pattern_str = "|".join(patterns)
+    logger.debug(f"censor_module.censor_text_func: Сформировано объединенное регулярное выражение: '{combined_pattern_str}'")
     
-    # Компилируем regex с `re.IGNORECASE` для поиска без учета регистра
-    combined_pattern = re.compile(combined_pattern_str, re.IGNORECASE)
+    # Компилируем регулярное выражение для повышения производительности
+    # re.IGNORECASE - игнорировать регистр
+    # re.UNICODE - для корректной работы с Юникод-символами (русский язык)
+    combined_pattern = re.compile(combined_pattern_str, re.IGNORECASE | re.UNICODE)
 
     was_censored = False
+    found_words = []
 
     def replacer(match):
+        """
+        Функция-заменитель для `re.sub()`. Вызывается для каждого найденного совпадения.
+        """
         nonlocal was_censored
         was_censored = True
-        original_match_length = len(match.group(0))
-        # Генерируем случайные символы для замены, сохраняя длину исходного совпадения
-        replacement = generate_random_symbols(original_match_length)
-        logger.debug(f"Censored '{match.group(0)}' to '{replacement}'")
+        matched_word = match.group(0) 
+        found_words.append(matched_word)
+        # Генерируем замену той же длины, что и найденное слово
+        replacement = generate_random_symbols(len(matched_word)) 
+        logger.debug(f"censor_module.censor_text_func: Обнаружено совпадение '{matched_word}', заменено на '{replacement}'")
         return replacement
 
     censored_text = combined_pattern.sub(replacer, text)
     
-    logger.debug(f"Final censored text: '{censored_text}', Was censored: {was_censored}")
-    return censored_text, was_censored
-
-censor_router = Router(name="censor_router")
-censor_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
-
-@censor_router.message(F.text)
-async def censor_message_handler(message: types.Message, bot: Bot, profile_manager: Any):
-    logger.debug(f"Censor handler received message: '{message.text}' from user {message.from_user.id} in chat {message.chat.id}.")
-=======
-    """
-    Цензурирует текст, заменяя слова, содержащие "плохие" корни, на случайные символы.
-    
-    Args:
-        text (str): Входной текст для цензуры.
-        bad_roots (List[str]): Список корней слов, которые нужно цензурировать.
-        
-    Returns:
-        Tuple[str, bool]: Цензурированный текст и флаг, указывающий, была ли произведена цензура.
-    """
-    logger.debug(f"censor_text_func: Обработка текста: '{text}'")
-    censored_parts = []
-    was_censored = False
-    
-    # Регулярное выражение для разделения текста на слова (буквы, цифры) и остальные символы
-    # \b\w+\b - слово целиком, \W+ - не-словесные символы (пробелы, знаки препинания)
-    words_and_separators = re.findall(r'(\b\w+\b|\W+)', text)
-
-    for item in words_and_separators:
-        if re.match(r'^\w+$', item): # Если это слово
-            lower_item = item.lower()
-            item_censored = False
-            for root in bad_roots:
-                if root in lower_item:
-                    censored_item = generate_random_symbols(len(item))
-                    censored_parts.append(censored_item)
-                    item_censored = True
-                    was_censored = True
-                    logger.debug(f"censor_text_func: Слово '{item}' заменено на '{censored_item}'")
-                    break
-            if not item_censored:
-                censored_parts.append(item)
-        else: # Если это не слово (пробелы, знаки препинания и т.д.)
-            censored_parts.append(item)
-            
-    censored_text = "".join(censored_parts)
-    logger.debug(f"censor_text_func: Результат цензуры: '{censored_text}', Была цензура: {was_censored}")
-    return censored_text, was_censored
+    logger.debug(f"censor_module.censor_text_func: Конечный цензурированный текст: '{censored_text}', Было ли цензурировано: {was_censored}")
+    return censored_text, was_censored, found_words
 
 # Создаем роутер для модуля цензуры
 censor_router = Router(name="censor_router")
+# Фильтр для работы ТОЛЬКО в групповых и супергрупповых чатах
+censor_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP})) 
+logger.debug("censor_router: Настроен фильтр для работы ТОЛЬКО в групповых и супергрупповых чатах.")
+
 
 @censor_router.message(F.text)
-async def censor_message_handler(message: types.Message, bot_instance: Bot, profile_manager: Any):
+async def censor_message_handler(message: types.Message, bot: Bot):
     """
-    Обработчик сообщений, который проверяет текст на наличие "плохих" слов.
-    Если слова найдены, сообщение удаляется, и отправляется цензурированная версия.
+    Обработчик входящих текстовых сообщений.
+    Проверяет сообщение на наличие "плохих" слов. Если найдены,
+    удаляет оригинальное сообщение и отправляет цензурированную версию.
+    Если сообщение является командой (начинается с '/' или является известной не-слеш командой),
+    оно пропускается.
     """
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
-    user_id = message.from_user.id
-    user_first_name = message.from_user.first_name or "Пользователь"
+    logger.debug(f"censor_message_handler: Получено сообщение: '{message.text}' от пользователя {message.from_user.id} в чате {message.chat.id}.")
+    
+    # Проверяем, что сообщение не от самого бота, чтобы избежать цикла
+    if not message.from_user or message.from_user.id == bot.id:
+        logger.debug("censor_message_handler: Сообщение от бота или без пользователя. Пропускаем.")
+        return
+
+    user = message.from_user
     original_text = message.text
+    original_text_lower = original_text.lower()
+
+    # Пропускаем сообщения, начинающиеся с "/" (команды)
+    if original_text.startswith('/'):
+        logger.debug(f"censor_message_handler: Сообщение '{original_text}' является командой со слешем. Пропускаем цензуру.")
+        # Важно: если это команда, мы просто возвращаемся, позволяя Aiogram передать ее дальше
+        # по цепочке обработчиков, где ее подхватит соответствующий Command-обработчик.
+        return 
+
+    # Пропускаем сообщения, которые являются известными не-слеш командами
+    # Проверяем команды от самых длинных к самым коротким, чтобы избежать частичных совпадений
+    for cmd_prefix in NON_SLASH_COMMAND_PREFIXES:
+        if original_text_lower.startswith(cmd_prefix):
+            # Дополнительная проверка, чтобы убедиться, что это именно команда, а не часть другого слова
+            # Например, "профиль" должен сработать, но "профилька" - нет.
+            # Проверяем, что после команды идет пробел, или это конец строки
+            if len(original_text_lower) == len(cmd_prefix) or \
+               (len(original_text_lower) > len(cmd_prefix) and original_text_lower[len(cmd_prefix)].isspace()):
+                logger.debug(f"censor_message_handler: Сообщение '{original_text}' является известной не-слеш командой '{cmd_prefix}'. Пропускаем цензуру.")
+                return
 
     if not BAD_WORD_ROOTS:
-<<<<<<< HEAD
-        logger.debug("Список 'плохих' слов пуст. Сообщение не проверяется на цензуру.")
-        return
-=======
-        logger.debug("Цензура: Список 'плохих' слов пуст. Сообщение не проверяется на цензуру.")
-        return # Нечего цензурировать, пропускаем
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
+        logger.debug("censor_message_handler: Список 'плохих' слов пуст. Сообщение не проверяется на цензуру. Пропускаем обработку.")
+        return # Выходим, если нет слов для цензуры
 
-    censored_text, was_censored = censor_text_func(original_text, BAD_WORD_ROOTS)
+    logger.debug(f"censor_message_handler: Вызов censor_text_func для текста: '{original_text}'")
+    censored_text, was_censored, found_words = censor_text_func(original_text, BAD_WORD_ROOTS)
+    logger.debug(f"censor_message_handler: Результат censor_text_func: was_censored={was_censored}")
 
     if was_censored:
-<<<<<<< HEAD
-        logger.info(f"CENSOR DETECTED: Original: '{original_text}', Censored: '{censored_text}'")
+        logger.info(f"censor_message_handler: ЦЕНЗУРА ОБНАРУЖЕНА: Оригинал: '{original_text}', Цензурировано: '{censored_text}'. Найденные слова: {found_words}")
+        
+        # Попытка удалить оригинальное сообщение
+        logger.debug(f"censor_message_handler: Попытка удалить сообщение {message.message_id} от пользователя {user.id}.")
         try:
             await message.delete()
-            logger.info(f"Сообщение {message.message_id} от пользователя {user_id} удалено.")
+            logger.info(f"censor_message_handler: Сообщение {message.message_id} от пользователя {user.id} УСПЕШНО удалено.")
         except TelegramAPIError as e:
-            logger.warning(f"Не удалось удалить сообщение {message.message_id} от пользователя {user_id}: {e.message}. Возможно, у бота нет прав администратора в чате.")
+            logger.warning(f"censor_message_handler: НЕ УДАЛОСЬ удалить сообщение {message.message_id} от пользователя {user.id}: {e.message}. Возможно, у бота нет прав администратора в чате.")
+        except Exception as e:
+            logger.error(f"censor_message_handler: Непредвиденная ошибка при попытке удаления сообщения {message.message_id}: {e}", exc_info=True)
         
-        response_text = f"{hbold(user_first_name)} имел в виду: \"{censored_text}\""
+        # Формирование и отправка цензурированного сообщения
+        response_text = f"{hbold(user.first_name or 'Пользователь')} имел в виду: \"{censored_text}\""
+        logger.debug(f"censor_message_handler: Попытка отправить цензурированное сообщение в чат {message.chat.id}: '{response_text}'")
         try:
             await bot.send_message(message.chat.id, response_text, parse_mode=ParseMode.HTML)
-            logger.info(f"Цензурированное сообщение отправлено в чат {message.chat.id}.")
+            logger.info(f"censor_message_handler: Цензурированное сообщение УСПЕШНО отправлено в чат {message.chat.id}.")
         except TelegramAPIError as e:
-            logger.error(f"Не удалось отправить цензурированное сообщение в чат {message.chat.id}: {e.message}", exc_info=True)
+            logger.error(f"censor_message_handler: НЕ УДАЛОСЬ отправить цензурированное сообщение в чат {message.chat.id}: {e.message}", exc_info=True)
+        except Exception as e:
+            logger.error(f"censor_message_handler: Непредвиденная ошибка при попытке отправки цензурированного сообщения: {e}", exc_info=True)
         
-        message.stop_propagation()
-    else:
-        logger.debug(f"CENSOR NO DETECTION: Original: '{original_text}'")
-        logger.debug(f"Сообщение от пользователя {user_id} не требует цензуры.")
+        # Если цензура сработала, мы полностью обработали сообщение.
+        # Возвращение чего-либо (или ничего) после await message.delete() и await bot.send_message()
+        # обычно приводит к тому, что Aiogram не передает сообщение дальше.
+        return 
 
-# ИСПРАВЛЕНИЕ: Изменена сигнатура функции для приема bad_words_file_path
-def setup_censor_handlers(main_dp: Router, bot_instance: Bot, bad_words_file_path: Path):
+    else:
+        logger.debug(f"censor_message_handler: ЦЕНЗУРА НЕ ОБНАРУЖЕНА: Оригинал: '{original_text}'")
+        logger.debug(f"censor_message_handler: Сообщение от пользователя {user.id} не требует цензуры. Сообщение будет передано для дальнейшей обработки.")
+        return # Если цензура не сработала, возвращаем None, чтобы сообщение продолжило распространение
+               # к другим обработчикам (например, F.text.lower().startswith("профиль") в stat_router).
+
+def setup_censor_handlers(main_dp: Router, bad_words_file_path: Path, non_slash_command_prefixes: List[str]):
+    """
+    Настраивает модуль цензуры: загружает "плохие" слова и включает
+    роутер цензуры в главный диспетчер Aiogram.
+    Также принимает список не-слеш команд, которые цензор должен игнорировать.
+    """
+    logger.debug(f"setup_censor_handlers: Начата настройка модуля цензуры.")
     global BAD_WORD_ROOTS
-    BAD_WORD_ROOTS = load_bad_words(bad_words_file_path) # Используем переданный путь
+    BAD_WORD_ROOTS = load_bad_words(bad_words_file_path) # Загружаем слова при инициализации
     
+    global NON_SLASH_COMMAND_PREFIXES
+    # Сортируем по длине в убывающем порядке, чтобы более длинные команды проверялись первыми (например, "моё хп" раньше "хп")
+    NON_SLASH_COMMAND_PREFIXES = sorted([cmd.lower() for cmd in non_slash_command_prefixes], key=len, reverse=True) 
+    logger.debug(f"setup_censor_handlers: Загружены не-слеш команды для игнорирования цензором: {NON_SLASH_COMMAND_PREFIXES}")
+
+    logger.debug("setup_censor_handlers: Включение censor_router в главный диспетчер.")
     main_dp.include_router(censor_router)
-=======
-        logger.info(f"Цензура: Сообщение от пользователя {user_id} было цензурировано. Оригинал: '{original_text}', Цензурировано: '{censored_text}'")
-        try:
-            await message.delete() # Удаляем оригинальное сообщение
-            logger.info(f"Цензура: Сообщение {message.message_id} от пользователя {user_id} удалено.")
-        except TelegramAPIError as e:
-            logger.warning(f"Цензура: Не удалось удалить сообщение {message.message_id} от пользователя {user_id}: {e.message}. Возможно, у бота нет прав администратора в чате.")
-            # Продолжаем отправлять цензурированное сообщение, даже если не удалось удалить оригинал
-            pass 
-
-        response_text = f"{hbold(user_first_name)} имел в виду: \"{censored_text}\""
-        try:
-            # Использование ParseMode.HTML напрямую из aiogram.enums
-            await bot_instance.send_message(message.chat.id, response_text, parse_mode=ParseMode.HTML)
-            logger.info(f"Цензура: Цензурированное сообщение отправлено в чат {message.chat.id}.")
-        except TelegramAPIError as e:
-            logger.error(f"Цензура: Не удалось отправить цензурированное сообщение в чат {message.chat.id}: {e.message}", exc_info=True)
-        
-        # Важно: Останавливаем распространение события, чтобы другие F.text обработчики не сработали
-        message.stop_propagation()
-    else:
-        logger.debug(f"Цензура: Сообщение от пользователя {user_id} не требует цензуры.")
-
-
-def setup_censor_handlers(dp: Router, bot_instance: Bot, profile_manager_instance: Any, bad_words_filepath: Path):
-    """
-    Настраивает обработчики цензуры и включает их в главный диспетчер.
-    
-    Args:
-        dp (Router): Главный диспетчер (или роутер) Aiogram.
-        bot_instance (Bot): Экземпляр бота.
-        profile_manager_instance (Any): Экземпляр менеджера профилей.
-        bad_words_filepath (Path): Путь к файлу со "злыми" словами.
-    """
-    global BAD_WORD_ROOTS
-    BAD_WORD_ROOTS = load_bad_words(bad_words_filepath)
-    
-    # Эти две строки были удалены в предыдущих исправлениях,
-    # так как они вызывали TypeError.
-    # censor_router["bot_instance"] = bot_instance
-    # censor_router["profile_manager"] = profile_manager_instance
-
-    dp.include_router(censor_router)
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
-    logger.info("Censor module handlers set up and included in main dispatcher.")
+    logger.info("setup_censor_handlers: Обработчики модуля цензуры успешно настроены и включены в главный диспетчер.")

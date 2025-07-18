@@ -1,124 +1,11 @@
-import asyncio
-import time
-import random
-import logging
-from typing import Dict, Any, Optional, List, Tuple, Set
-import aiosqlite
-from aiogram import Router, types, F, Bot
-from aiogram.enums import ChatType, ParseMode, MessageEntityType
-from aiogram.filters import Command
-from aiogram.exceptions import TelegramAPIError
-from contextlib import suppress
-import database as db
-
-try:
-    from group_stat import ProfileManager as RealProfileManager
-    HAS_PROFILE_MANAGER = True
-except ImportError:
-    logging.critical("CRITICAL: Module 'group_stat' or 'ProfileManager' not found. RP functionality will be severely impaired or non-functional.")
-    HAS_PROFILE_MANAGER = False
-    class RealProfileManager:
-        async def get_user_rp_stats(self, user_id: int) -> Dict[str, Any]:
-            return {'hp': 100, 'recovery_end_ts': 0.0, 'heal_cooldown_ts': 0.0}
-        async def update_user_rp_stats(self, user_id: int, **kwargs: Any) -> None:
-            pass
-        async def get_user_profile(self, user: types.User) -> Optional[Dict[str, Any]]:
-            return None
-        async def connect(self) -> None:
-            pass
-        async def close(self) -> None:
-            pass
-
-ProfileManager = RealProfileManager
-
-logger = logging.getLogger(__name__)
+from core.group.RP.rmain import *
+from core.group.RP.config import *
+from core.group.RP.actions import *
+from core.group.RP.more import *
 
 rp_router = Router(name="rp_module")
 rp_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
-
-class RPConfig:
-    DEFAULT_HP: int = 100
-    MAX_HP: int = 150
-<<<<<<< HEAD
-    MIN_HP: int = 0
-    HEAL_COOLDOWN_SECONDS: int = 120 
-    HP_RECOVERY_TIME_SECONDS: int = 600
-    HP_RECOVERY_AMOUNT: int = 25
-=======
-    MIN_HP: int = 0 # Минимальное HP, при котором считается "без сознания"
-    HEAL_COOLDOWN_SECONDS: int = 120 
-    HP_RECOVERY_TIME_SECONDS: int = 600 # 10 минут время восстановления из нокаута
-    HP_RECOVERY_AMOUNT: int = 25 # Количество HP, восстанавливаемое за раз
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
-
-class RPActions:
-    INTIMATE_ACTIONS: Dict[str, Dict[str, Dict[str, int]]] = {
-        "добрые": {
-            "поцеловать": {"hp_change_target": +10, "hp_change_sender": +1},
-            "обнять": {"hp_change_target": +15, "hp_change_sender": +5},
-            "погладить": {"hp_change_target": +5, "hp_change_sender": +2},
-            "романтический поцелуй": {"hp_change_target": +20, "hp_change_sender": +10},
-            "трахнуть": {"hp_change_target": +30, "hp_change_sender": +15},
-            "поцеловать в щёчку": {"hp_change_target": +7, "hp_change_sender": +3},
-            "прижать к себе": {"hp_change_target": +12, "hp_change_sender": +6},
-            "покормить": {"hp_change_target": +9, "hp_change_sender": -2},
-            "напоить": {"hp_change_target": +6, "hp_change_sender": -1},
-            "сделать массаж": {"hp_change_target": +15, "hp_change_sender": +3},
-            "спеть песню": {"hp_change_target": +5, "hp_change_sender": +1},
-            "подарить цветы": {"hp_change_target": +12, "hp_change_sender": -12},
-            "подрочить": {"hp_change_target": +12, "hp_change_sender": 0},
-            "полечить": {"hp_change_target": +25, "hp_change_sender": -5},
-        },
-        "нейтральные": {
-            "толкнуть": {"hp_change_target": 0, "hp_change_sender": 0},
-            "схватить": {"hp_change_target": 0, "hp_change_sender": 0},
-            "помахать": {"hp_change_target": 0, "hp_change_sender": 0},
-            "кивнуть": {"hp_change_target": 0, "hp_change_sender": 0},
-            "похлопать": {"hp_change_target": 0, "hp_change_sender": 0},
-            "постучать": {"hp_change_target": 0, "hp_change_sender": 0},
-            "попрощаться": {"hp_change_target": 0, "hp_change_sender": 0},
-            "шепнуть": {"hp_change_target": 0, "hp_change_sender": 0},
-            "почесать спинку": {"hp_change_target": +5, "hp_change_sender": 0},
-            "успокоить": {"hp_change_target": +5, "hp_change_sender": +1},
-            "заплакать": {}, "засмеяться": {}, "удивиться": {}, "подмигнуть": {},
-        },
-        "злые": {
-            "уебать": {"hp_change_target": -20, "hp_change_sender": -2},
-            "схватить за шею": {"hp_change_target": -25, "hp_change_sender": -3},
-            "ударить": {"hp_change_target": -10, "hp_change_sender": -1},
-            "укусить": {"hp_change_target": -15, "hp_change_sender": 0},
-            "шлепнуть": {"hp_change_target": -8, "hp_change_sender": 0},
-            "пощечина": {"hp_change_target": -12, "hp_change_sender": -1},
-            "пнуть": {"hp_change_target": -10, "hp_change_sender": 0},
-            "ущипнуть": {"hp_change_target": -7, "hp_change_sender": 0},
-            "толкнуть сильно": {"hp_change_target": -9, "hp_change_sender": -1},
-            "обозвать": {"hp_change_target": -5, "hp_change_sender": 0},
-            "плюнуть": {"hp_change_target": -6, "hp_change_sender": 0},
-            "превратить": {"hp_change_target": -80, "hp_change_sender": -10},
-            "обидеть": {"hp_change_target": -7, "hp_change_sender": 0},
-            "разозлиться": {"hp_change_target": -2, "hp_change_sender": -1},
-            "испугаться": {"hp_change_target": -1, "hp_change_sender": 0},
-            "издеваться": {"hp_change_target": -10, "hp_change_sender": -1},
-        }
-    }
-    ALL_ACTION_DATA: Dict[str, Dict[str, int]] = {
-        action: data if data else {}
-        for category_actions in INTIMATE_ACTIONS.values()
-        for action, data in category_actions.items()
-    }
-    SORTED_COMMANDS_FOR_PARSING: List[str] = sorted(
-        ALL_ACTION_DATA.keys(), key=len, reverse=True
-    )
-    ALL_ACTIONS_LIST_BY_CATEGORY: Dict[str, List[str]] = {
-        "Добрые действия ❤️": list(INTIMATE_ACTIONS["добрые"].keys()),
-        "Нейтральные действия 😐": list(INTIMATE_ACTIONS["нейтральные"].keys()),
-        "Злые действия 💀": list(INTIMATE_ACTIONS["злые"].keys())
-    }
-
-def get_user_display_name(user: types.User) -> str:
-    name = f"@{user.username}" if user.username else user.full_name
-    return name
-
+ 
 async def _update_user_hp(
     profile_manager: ProfileManager,
     user_id: int,
@@ -141,80 +28,6 @@ async def _update_user_hp(
 
     await db.update_user_rp_stats(user_id, **update_fields)
     return new_hp, knocked_out_this_time
-
-def get_command_from_text(text: Optional[str]) -> Tuple[Optional[str], str]:
-    if not text:
-        return None, ""
-    text_lower = text.lower()
-    for cmd in RPActions.SORTED_COMMANDS_FOR_PARSING:
-        if text_lower.startswith(cmd) and \
-           (len(text_lower) == len(cmd) or text_lower[len(cmd)].isspace()):
-            additional_text = text[len(cmd):].strip()
-            return cmd, additional_text
-    return None, ""
-
-def format_timedelta(seconds: float) -> str:
-    if seconds <= 0:
-        return "уже можно"
-    total_seconds = int(seconds)
-    minutes = total_seconds // 60
-    secs = total_seconds % 60
-    if minutes > 0 and secs > 0:
-        return f"{minutes} мин {secs} сек"
-    elif minutes > 0:
-        return f"{minutes} мин"
-    return f"{secs} сек"
-
-async def check_and_notify_rp_state(
-    user: types.User,
-    bot: Bot,
-    profile_manager: ProfileManager,
-    message_to_delete_on_block: Optional[types.Message] = None
-) -> bool:
-    if not HAS_PROFILE_MANAGER:
-        logger.error(f"Cannot check RP state for user {user.id} due to missing ProfileManager.")
-        try:
-            await bot.send_message(user.id, "⚠️ Произошла ошибка с модулем профилей, RP-действия временно недоступны.")
-        except TelegramAPIError:
-            pass
-        if message_to_delete_on_block:
-             with suppress(TelegramAPIError): await message_to_delete_on_block.delete()
-        return True
-
-    stats = await db.get_user_rp_stats(user.id)
-    current_hp = stats.get('hp', RPConfig.DEFAULT_HP)
-    recovery_ts = stats.get('recovery_end_ts', 0.0)
-    now = time.time()
-
-    if current_hp <= RPConfig.MIN_HP:
-        if recovery_ts > 0.0 and now < recovery_ts:
-            remaining_recovery = recovery_ts - now
-            time_str = format_timedelta(remaining_recovery)
-            try:
-                await bot.send_message(
-                    user.id,
-                    f"Вы сейчас не можете совершать RP-действия (HP: {current_hp}).\n"
-                    f"Автоматическое восстановление {RPConfig.HP_RECOVERY_AMOUNT} HP через: {time_str}."
-                )
-            except TelegramAPIError as e:
-                logger.warning(f"Could not send RP state PM to user {user.id}: {e}")
-                if message_to_delete_on_block:
-                    await message_to_delete_on_block.reply(
-                        f"{get_user_display_name(user)}, вы пока не можете действовать (HP: {current_hp}). "
-                        f"Восстановление через {time_str}."
-                    )
-            if message_to_delete_on_block:
-                with suppress(TelegramAPIError): await message_to_delete_on_block.delete()
-            return True
-        elif recovery_ts == 0.0 or now >= recovery_ts:
-            recovered_hp, _ = await _update_user_hp(profile_manager, user.id, RPConfig.HP_RECOVERY_AMOUNT)
-            logger.info(f"User {user.id} HP auto-recovered to {recovered_hp} upon action attempt.")
-            try:
-                await bot.send_message(user.id, f"Ваше HP восстановлено до {recovered_hp}! Теперь вы можете совершать RP-действия.")
-            except TelegramAPIError:
-                pass
-            return False
-    return False
 
 async def _process_rp_action(
     message: types.Message,
@@ -311,19 +124,6 @@ async def _process_rp_action(
     elif command.endswith("ться"):
         command_display = command[:-3] + "л(-а)ся"
 
-<<<<<<< HEAD
-
-=======
-    # Измененная логика для использования бесполых окончаний
-    # Здесь мы будем проверять, заканчивается ли глагол на "ть" и заменять его на "л(-а)"
-    command_display = command
-    if command.endswith("ть"):
-        command_display = command[:-2] + "л(-а)" # Например, "поцеловать" -> "поцеловал(-а)"
-    elif command.endswith("ться"):
-        command_display = command[:-3] + "л(-а)ся" # Например, "отмыться" -> "отмыл(-а)ся"
-
-
->>>>>>> 14db95269ee53caabc816e1133fad09d46f4a408
     response_text = f"{sender_name} {command_display} {target_name}"
     if additional_text:
         response_text += f" {additional_text}"
@@ -355,6 +155,7 @@ async def _process_rp_action(
     await message.reply(response_text, parse_mode=ParseMode.HTML)
     with suppress(TelegramAPIError):
         await message.delete()
+
 
 @rp_router.message(F.text, lambda msg: get_command_from_text(msg.text)[0] is not None)
 async def handle_rp_action_via_text(message: types.Message, bot: Bot, profile_manager: ProfileManager):
@@ -438,7 +239,6 @@ async def reaction_love(message: types.Message, bot: Bot, profile_manager: Profi
     if not message.from_user: return
     if await check_and_notify_rp_state(message.from_user, bot, profile_manager, message): return
     await message.reply("И я вас люблю! ❤️🤡")
-
 
 async def periodic_hp_recovery_task(bot: Bot, profile_manager: ProfileManager, db_module: Any):
     if not HAS_PROFILE_MANAGER:
