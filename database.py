@@ -34,7 +34,7 @@ async def initialize_database() -> None:
                 user_id INTEGER NOT NULL,
                 timestamp REAL NOT NULL,
                 mode TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),\
                 content TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
@@ -85,6 +85,16 @@ async def initialize_database() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
+        # Новая таблица для инвентаря пользователя
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS user_inventory (
+                user_id INTEGER NOT NULL,
+                item_key TEXT NOT NULL,
+                item_type TEXT NOT NULL, -- Например, 'background'
+                PRIMARY KEY (user_id, item_key),
+                FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        ''')
         await db.commit()
     logger.info("Database initialized successfully.")
 
@@ -110,17 +120,32 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
 
 async def get_user_profile_info(user_id: int) -> Optional[Dict[str, Any]]:
     async with aiosqlite.connect(DB_FILE) as db:
-        async with db.execute('SELECT user_id, username, first_name, last_active_ts FROM users WHERE user_id = ?', (user_id,)) as cursor:
-            row = await cursor.fetchone()
-            if row:
-                last_active_formatted = datetime.fromtimestamp(row[3]).isoformat() if row[3] and row[3] > 0 else 'N/A'
-                return {
-                    "user_id": row[0],
-                    "username": row[1],
-                    "first_name": row[2],
-                    "last_active": last_active_formatted
-                }
-            return None
+        # Обновленный запрос для получения active_background из user_profiles
+        cursor = await db.execute('''
+            SELECT u.user_id, u.username, u.first_name, u.last_active_ts,
+                   up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, up.total_messages, up.flames, up.active_background
+            FROM users u
+            LEFT JOIN user_profiles up ON u.user_id = up.user_id
+            WHERE u.user_id = ?
+        ''', (user_id,))
+        row = await cursor.fetchone()
+        if row:
+            last_active_formatted = datetime.fromtimestamp(row[3]).isoformat() if row[3] and row[3] > 0 else 'N/A'
+            return {
+                "user_id": row[0],
+                "username": row[1],
+                "first_name": row[2],
+                "last_active": last_active_formatted,
+                "hp": row[4],
+                "level": row[5],
+                "exp": row[6],
+                "lumcoins": row[7],
+                "daily_messages": row[8],
+                "total_messages": row[9],
+                "flames": row[10],
+                "active_background": row[11] # Добавлено поле active_background
+            }
+        return None
 
 async def add_value_subscriber(user_id: int) -> None:
     async with aiosqlite.connect(DB_FILE) as db:
@@ -232,7 +257,7 @@ async def log_user_interaction(user_id: int, mode: str, action_type: str = "mess
         await db.commit()
 
 async def log_user_rating(user_id: int, rating: int, message_preview: str,
-                           rated_message_id: Optional[int] = None, dialog_history_id: Optional[int] = None) -> None:
+                          rated_message_id: Optional[int] = None, dialog_history_id: Optional[int] = None) -> None:
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
             INSERT INTO analytics_ratings (user_id, timestamp, rating, message_preview, rated_message_id, dialog_history_id)
@@ -323,3 +348,30 @@ async def get_users_for_hp_recovery(current_timestamp: float, min_hp_level_inclu
         async with db.execute(query, (min_hp_level_inclusive, current_timestamp)) as cursor:
             rows = await cursor.fetchall()
             return [(row[0], row[1]) for row in rows]
+
+async def add_item_to_inventory(user_id: int, item_key: str, item_type: str) -> None:
+    """Добавляет предмет в инвентарь пользователя."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            INSERT OR IGNORE INTO user_inventory (user_id, item_key, item_type)
+            VALUES (?, ?, ?)
+        ''', (user_id, item_key, item_type))
+        await db.commit()
+    logger.info(f"Item '{item_key}' (type: {item_type}) added to inventory for user {user_id}.")
+
+async def get_user_inventory(user_id: int, item_type: str = 'background') -> List[str]:
+    """Получает список ключей предметов определенного типа из инвентаря пользователя."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        cursor = await db.execute('''
+            SELECT item_key FROM user_inventory WHERE user_id = ? AND item_type = ?
+        ''', (user_id, item_type))
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+async def set_user_active_background(user_id: int, background_key: str) -> None:
+    """Устанавливает активный фон для пользователя."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('UPDATE user_profiles SET active_background = ? WHERE user_id = ?', (background_key, user_id))
+        await db.commit()
+    logger.info(f"User {user_id} active background set to '{background_key}'.")
+

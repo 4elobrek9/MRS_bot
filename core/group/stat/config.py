@@ -70,14 +70,7 @@ class ProfileConfig:
         "читал(а) книгу",
         "смотрел(а) в окно"
     ]
-    BACKGROUND_SHOP = {
-        "space": {"name": "Космос", "url": "https://images.unsplash.com/photo-1506318137072-291786a88698?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxzZWFjZXxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 50},
-        "nature": {"name": "Природа", "url": "https://images.unsplash.com/photo-1440330559787-852571c1c71a?ixlib=rb-4.0.3&ixid=M3wxMjA3fDF8fG5hdHVyZXxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 40},
-        "city": {"name": "Город", "url": "https://images.unsplash.com/photo-1519013876546-8858ba07e532?ixlib=rb-4.0.3&ixid=M3wxMjA3fDF8fGNpdHl8ZW58MHx8MHx8fDA%3D&auto=format&fit=crop&w=600&q=80", "cost": 60},
-        "abstract": {"name": "Абстракция", "url": "https://images.unsplash.com/photo-1508768787810-6adc1f09aeda?ixlib=rb-4.0.3&ixid=M3wxMjA3fDdzfHxhYnN0cmFjdHxlbnwwfHwwfHww&auto=format&fit=crop&w=600&q=80", "cost": 30}
-    }
     FONT_SIZE_XLARGE = 36
     FONT_SIZE_LARGE = 28
     FONT_SIZE_MEDIUM = 20
     FONT_SIZE_SMALL = 16
-

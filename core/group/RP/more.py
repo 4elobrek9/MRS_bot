@@ -3,6 +3,9 @@ from core.group.RP.config import *
 from core.group.RP.actions import *
 
 def get_user_display_name(user: types.User) -> str:
+    """
+    Возвращает отображаемое имя пользователя (username или полное имя).
+    """
     name = f"@{user.username}" if user.username else user.full_name
     return name
 
@@ -11,6 +14,9 @@ async def _update_user_hp(
     user_id: int,
     hp_change: int
 ) -> Tuple[int, bool]:
+    """
+    Обновляет HP пользователя и возвращает новое HP и флаг нокаута.
+    """
     stats = await db.get_user_rp_stats(user_id)
     current_hp = stats.get('hp', RPConfig.DEFAULT_HP)
     new_hp = max(RPConfig.MIN_HP, min(RPConfig.MAX_HP, current_hp + hp_change))
@@ -23,6 +29,7 @@ async def _update_user_hp(
         knocked_out_this_time = True
         logger.info(f"User {user_id} HP dropped to {new_hp}. Recovery timer set for {RPConfig.HP_RECOVERY_TIME_SECONDS}s.")
     elif new_hp > RPConfig.MIN_HP and stats.get('recovery_end_ts', 0.0) > 0 :
+        # Если HP восстановилось выше MIN_HP, сбрасываем таймер восстановления
         update_fields['recovery_end_ts'] = 0.0
         logger.info(f"User {user_id} HP recovered above {RPConfig.MIN_HP}. Recovery timer reset.")
 
@@ -30,6 +37,9 @@ async def _update_user_hp(
     return new_hp, knocked_out_this_time
 
 def get_command_from_text(text: Optional[str]) -> Tuple[Optional[str], str]:
+    """
+    Извлекает RP-команду из начала текста сообщения и остальной текст.
+    """
     if not text:
         return None, ""
     text_lower = text.lower()
@@ -40,7 +50,68 @@ def get_command_from_text(text: Optional[str]) -> Tuple[Optional[str], str]:
             return cmd, additional_text
     return None, ""
 
+async def _parse_rp_message(message: types.Message, bot: Bot) -> Tuple[Optional[str], Optional[types.User], Optional[str]]:
+    """
+    Парсит сообщение для извлечения RP-действия, целевого пользователя и дополнительного текста.
+    """
+    text = message.text or message.caption
+    if not text:
+        return None, None, None
+
+    action_name = None
+    target_user = None
+    custom_text = None
+    remaining_text = text
+
+    # 1. Поиск команды RP-действия в начале сообщения
+    found_action, text_after_action = get_command_from_text(remaining_text)
+    if found_action:
+        action_name = found_action
+        remaining_text = text_after_action
+
+    # Если действие найдено, ищем цель и дополнительный текст
+    if action_name:
+        # 2. Поиск упоминания (@username)
+        # Ищем сущности (entities) в сообщении
+        if message.entities:
+            for entity in message.entities:
+                if entity.type == MessageEntityType.MENTION:
+                    # Извлекаем username из текста упоминания
+                    mentioned_username = text[entity.offset : entity.offset + entity.length].lstrip('@')
+                    # Пытаемся получить пользователя по username
+                    try:
+                        chat_member = await bot.get_chat_member(message.chat.id, mentioned_username)
+                        target_user = chat_member.user
+                        # Удаляем упоминание из оставшегося текста
+                        remaining_text = (remaining_text[:entity.offset] + remaining_text[entity.offset + entity.length:]).strip()
+                        break # Нашли первое упоминание, используем его как цель
+                    except TelegramAPIError as e:
+                        logger.warning(f"Could not get chat member for mentioned username '{mentioned_username}': {e}")
+                        continue
+                elif entity.type == MessageEntityType.TEXT_MENTION:
+                    # Это упоминание пользователя по ID, когда у него нет username (например, если он скрыл его)
+                    target_user = entity.user
+                    # Удаляем упоминание из оставшегося текста
+                    remaining_text = (remaining_text[:entity.offset] + remaining_text[entity.offset + entity.length:]).strip()
+                    break # Нашли первое упоминание, используем его как цель
+
+        # 3. Если нет упоминания, но есть ответ на сообщение
+        if not target_user and message.reply_to_message:
+            target_user = message.reply_to_message.from_user
+            logger.debug(f"Target user set from reply_to_message: {target_user.id}")
+
+        # Оставшийся текст после команды и упоминания (если было) - это custom_text
+        custom_text = remaining_text.strip()
+        if not custom_text:
+            custom_text = None
+
+    return action_name, target_user, custom_text
+
+
 def format_timedelta(seconds: float) -> str:
+    """
+    Форматирует временной интервал в удобочитаемый вид.
+    """
     if seconds <= 0:
         return "уже можно"
     total_seconds = int(seconds)
@@ -81,6 +152,7 @@ async def is_user_knocked_out(
             remaining_recovery = recovery_ts - now
             time_str = format_timedelta(remaining_recovery)
             try:
+                # Отправляем сообщение в ЛС пользователю
                 await bot.send_message(
                     user_id,
                     f"Вы сейчас не можете совершать RP-действия (HP: {current_hp}).\n"
@@ -88,9 +160,17 @@ async def is_user_knocked_out(
                 )
             except TelegramAPIError as e:
                 logger.warning(f"Could not send RP state PM to user {user_id}: {e}")
+                # Если не удалось отправить в ЛС, отправляем в чат, если есть message_for_reply
                 if message_for_reply:
+                    # Пытаемся получить имя пользователя для отображения в чате
+                    try:
+                        chat_member = await bot.get_chat_member(message_for_reply.chat.id, user_id)
+                        display_name = get_user_display_name(chat_member.user)
+                    except TelegramAPIError:
+                        display_name = f"Пользователь {user_id}" # Fallback
+                    
                     await message_for_reply.reply(
-                        f"{get_user_display_name(await bot.get_chat_member(message_for_reply.chat.id, user_id).user)}, вы пока не можете действовать (HP: {current_hp}). "
+                        f"{display_name}, вы пока не можете действовать (HP: {current_hp}). "
                         f"Восстановление через {time_str}."
                     )
             return True

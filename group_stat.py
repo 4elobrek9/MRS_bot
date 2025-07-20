@@ -1,15 +1,17 @@
 from core.group.stat.smain import *
 from core.group.stat.config import *
 from core.group.stat.manager import ProfileManager
-from core.group.stat.command import *
-# from group_stat import * # Эта строка вызывает цикличный импорт, если group_stat.py импортирует сам себя. Удаляем.
+# from core.group.stat.command import * # Этот импорт может быть не нужен
+# from group_stat import * # Циклический импорт
+
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, BufferedInputFile
+from aiogram.utils.markdown import hlink
 
 formatter = string.Formatter()
 
 stat_router = Router(name="stat_router")
 
-# Использование F.text.lower().startswith для команды "профиль"
-# Это позволит обрабатывать как "/профиль", так и просто "профиль".
 @stat_router.message(F.text.lower().startswith(("профиль", "/профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
@@ -57,34 +59,77 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
 @stat_router.message(F.text.lower() == "магазин")
 async def show_shop(message: types.Message, profile_manager: ProfileManager):
     logger.info(f"Received 'магазин' command from user {message.from_user.id}.")
+    
     shop_items = profile_manager.get_available_backgrounds()
-    text = "🛍️ **Магазин фонов** 🛍️\n\n"
-    text += "Напишите название фона из списка, чтобы купить его:\n\n"
+    
+    builder = InlineKeyboardBuilder()
     for key, item in shop_items.items():
-        text += f"- `{key}`: {item['name']} ({item['cost']} LUMcoins)\n"
-    logger.debug(f"Shop items compiled: {shop_items}.")
-    await message.reply(text, parse_mode="Markdown")
-    logger.info(f"Shop list sent to user {message.from_user.id}.")
+        builder.row(
+            InlineKeyboardButton(
+                text=f"{item['name']} - {item['cost']} LUM",
+                callback_data=f"buy_background:{key}"
+            )
+        )
 
-@stat_router.message(F.text.lower().in_(ProfileConfig.BACKGROUND_SHOP.keys()))
-async def buy_background(message: types.Message, profile_manager: ProfileManager):
-    logger.info(f"User {message.from_user.id} attempted to buy background: '{message.text.lower()}'.")
-    user_id = message.from_user.id
-    command = message.text.lower()
+    text = "🛍️ **Магазин фонов** 🛍️\n\nВыберите фон для покупки:"
+    
+    await message.reply(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    logger.info(f"Shop list with inline buttons sent to user {message.from_user.id}.")
+
+# =================================================================
+# ИЗМЕНЕНИЕ: Обновлена логика подтверждения покупки
+# =================================================================
+@stat_router.callback_query(F.data.startswith("buy_background:"))
+async def process_buy_background(callback: types.CallbackQuery, profile_manager: ProfileManager):
+    original_command_message = callback.message.reply_to_message
+    
+    if not original_command_message or callback.from_user.id != original_command_message.from_user.id:
+        await callback.answer("Вы не можете использовать этот магазин.", show_alert=True)
+        return
+
+    await callback.answer()
+
+    user_id = callback.from_user.id
+    item_key = callback.data.split(":")[1]
+    
+    logger.info(f"User {user_id} initiated purchase of background: '{item_key}'.")
+
     shop_items = profile_manager.get_available_backgrounds()
-    if command in shop_items:
-        item = shop_items[command]
+    if item_key in shop_items:
+        item = shop_items[item_key]
         user_coins = await profile_manager.get_lumcoins(user_id)
+        
         logger.debug(f"User {user_id} has {user_coins} Lumcoins. Item '{item['name']}' costs {item['cost']}.")
+
         if user_coins >= item['cost']:
             await profile_manager.update_lumcoins(user_id, -item['cost'])
-            logger.info(f"User {user_id} successfully bought background '{item['name']}'. New balance.")
-            await message.reply(f"✅ Вы успешно приобрели фон '{item['name']}' за {item['cost']} LUMcoins!")
+            await profile_manager.set_user_background(user_id, item_key)
+            
+            logger.info(f"User {user_id} successfully bought and set background '{item['name']}'.")
+            
+            # Формируем имя пользователя для упоминания
+            user_info = callback.from_user
+            user_mention = hlink(user_info.full_name, f"tg://user?id={user_info.id}")
+
+            # Отправляем публичное сообщение о покупке в чат
+            await callback.message.answer(
+                f"✅ Пользователь {user_mention} успешно приобрел(а) фон для профиля: **{item['name']}**!",
+                parse_mode="HTML"
+            )
+            # Редактируем исходное сообщение магазина, чтобы закрыть его
+            await callback.message.edit_text("Покупка совершена.", reply_markup=None)
+
         else:
             logger.info(f"User {user_id} failed to buy background '{item['name']}' due to insufficient funds.")
-            await message.reply(f"❌ Недостаточно LUMcoins! Цена фона '{item['name']}': {item['cost']}, у вас: {user_coins}.")
+            await callback.message.answer(
+                f"❌ Недостаточно LUMcoins! Цена фона '{item['name']}': {item['cost']}, у вас: {user_coins}."
+            )
+            # Закрываем магазин после неудачной попытки
+            await callback.message.edit_text("Недостаточно средств.", reply_markup=None)
     else:
-        logger.warning(f"Unexpected: User {user_id} tried to buy non-existent background '{command}'.")
+        logger.warning(f"User {user_id} tried to buy non-existent background '{item_key}'.")
+        await callback.message.edit_text("❌ Произошла ошибка. Такого предмета больше нет в магазине.", reply_markup=None)
+# =================================================================
 
 @stat_router.message(F.text.lower().startswith("топ"))
 async def show_top(message: types.Message, profile_manager: ProfileManager):
@@ -151,6 +196,7 @@ def init_db_sync_profiles():
             total_messages INTEGER DEFAULT 0,
             flames INTEGER DEFAULT 0,
             last_work_time REAL DEFAULT 0,
+            active_background TEXT DEFAULT 'default',
             FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
         ''')
@@ -163,11 +209,9 @@ def init_db_sync_profiles():
 
 init_db_sync_profiles()
 
-# *** ВАЖНОЕ ИЗМЕНЕНИЕ: Перемещено в конец файла, чтобы другие обработчики имели приоритет ***
 @stat_router.message()
 async def track_message_activity(message: types.Message, profile_manager: ProfileManager):
     logger.debug(f"Tracking message activity for user {message.from_user.id}.")
-    # Игнорируем сообщения от самого бота и нетекстовые сообщения
     if message.from_user.id == message.bot.id or message.content_type != types.ContentType.TEXT:
         logger.debug(f"Ignoring message from bot or non-text message for user {message.from_user.id}.")
         return
@@ -182,7 +226,6 @@ async def track_message_activity(message: types.Message, profile_manager: Profil
         return
     old_level = old_profile.get('level', 1)
     old_lumcoins = old_profile.get('lumcoins', 0)
-    logger.debug(f"User {user_id}: Old level {old_level}, old lumcoins {old_lumcoins}.")
     
     await profile_manager.record_message(message.from_user)
     
@@ -193,7 +236,6 @@ async def track_message_activity(message: types.Message, profile_manager: Profil
     new_level = new_profile.get('level', 1)
     new_lumcoins = new_profile.get('lumcoins', 0)
     lumcoins_earned_from_level = new_lumcoins - old_lumcoins
-    logger.debug(f"User {user_id}: New level {new_level}, new lumcoins {new_lumcoins}, earned {lumcoins_earned_from_level} from level up.")
     
     if new_level > old_level and lumcoins_earned_from_level > 0:
         logger.info(f"User {user_id} leveled up to {new_level} and earned {lumcoins_earned_from_level} Lumcoins.")

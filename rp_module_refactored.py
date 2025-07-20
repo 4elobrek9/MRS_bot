@@ -7,6 +7,8 @@ from aiogram.exceptions import TelegramAPIError
 from contextlib import suppress
 import time
 from typing import Optional, Tuple, Any, List
+import asyncio 
+import logging # Добавлен импорт logging
 
 # Импорт из основного модуля базы данных
 import database as db
@@ -16,7 +18,7 @@ try:
     from core.group.stat.manager import ProfileManager as RealProfileManager
     HAS_PROFILE_MANAGER = True
 except ImportError:
-    import logging
+    # import logging # Этот импорт был здесь, но должен быть в начале файла.
     logging.critical("CRITICAL: Module 'core.group.stat.manager' or 'ProfileManager' not found. RP functionality will be severely impaired or non-functional.")
     HAS_PROFILE_MANAGER = False
     class RealProfileManager:
@@ -84,6 +86,14 @@ async def handle_rp_action(
     new_sender_hp, sender_knocked_out = await _update_user_hp(profile_manager, sender_id, hp_change_sender)
 
     if target_user:
+        # =================================================================
+        # ИЗМЕНЕНИЕ: Запрет на использование РП команд на ботов
+        # =================================================================
+        if target_user.is_bot:
+            await message.reply("🤖 РП-действия на ботов запрещены.")
+            return
+        # =================================================================
+
         if target_user.id == sender_id:
             await message.reply("🚫 Вы не можете совершать RP-действия на самого себя.")
             return
@@ -100,7 +110,7 @@ async def handle_rp_action(
         new_target_hp, target_knocked_out = await _update_user_hp(profile_manager, target_id, hp_change_target)
 
         # Формирование сообщения о действии с новым форматированием
-        action_message = f"{sender_name} {action_name} {target_name}!"
+        action_message = f"{sender_name} {action_name} {target_name}"
         if custom_text: # Добавляем дополнительный текст, если он есть
             action_message += f" {custom_text}"
         
@@ -118,7 +128,7 @@ async def handle_rp_action(
         logger.info(f"RP Action '{action_name}' performed by {sender_id} on {target_id}. Sender HP: {new_sender_hp}, Target HP: {new_target_hp}.")
     else:
         # Действие без цели (например, "засмеяться")
-        action_message = f"{sender_name} {action_name}!"
+        action_message = f"{sender_name} {action_name}"
         if custom_text: # Добавляем дополнительный текст, если он есть
             action_message += f" {custom_text}"
         action_message += f"\n(HP {sender_name}: {new_sender_hp}/{RPConfig.MAX_HP})"
@@ -268,7 +278,7 @@ async def cmd_heal(message: types.Message, bot: Bot, profile_manager: ProfileMan
     new_hp, _ = await _update_user_hp(profile_manager, user_id, RPConfig.HEAL_AMOUNT)
     
     # Снимаем Lumcoins
-    await profile_manager.update_user_profile(user_id, lumcoins=lumcoins - RPConfig.HEAL_COST)
+    await profile_manager.update_lumcoins(user_id, -RPConfig.HEAL_COST)
 
     # Устанавливаем кулдаун на лечение
     new_cooldown_ts = now + RPConfig.HEAL_COOLDOWN_SECONDS

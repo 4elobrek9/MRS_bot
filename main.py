@@ -74,7 +74,8 @@ async def main():
     for action in RPActions.SORTED_COMMANDS_FOR_PARSING:
         # Убеждаемся, что не перезаписываем уже существующие специфичные обработчики
         if action not in direct_dispatch_handlers:
-            direct_dispatch_handlers[action] = (handle_rp_action_via_text, ["message", "bot", "profile_manager", "command_text_payload"])
+            # ИЗМЕНЕНИЕ ЗДЕСЬ: Удален 'command_text_payload'
+            direct_dispatch_handlers[action] = (handle_rp_action_via_text, ["message", "bot", "profile_manager"])
 
     # Список не-слеш команд, которые цензор должен игнорировать
     # Собираем все ключи из direct_dispatch_handlers, так как они теперь будут обрабатываться напрямую
@@ -188,3 +189,4 @@ if __name__ == '__main__':
         logger.info("main: Бот остановлен вручную (KeyboardInterrupt).")
     except Exception as e:
         logger.critical(f"main: Необработанное исключение при основном выполнении: {e}", exc_info=True)
+
