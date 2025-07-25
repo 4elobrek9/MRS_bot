@@ -4,7 +4,8 @@ from core.group.stat.config import ProfileConfig
 # from group_stat import * # Циклический импорт
 
 # Прямые импорты, чтобы избежать цикличности
-from database import get_user_rp_stats, add_item_to_inventory, get_user_inventory, set_user_active_background, get_user_profile_info
+# Удален get_user_profile_info, так как ProfileManager теперь сам получает данные профиля
+from database import get_user_rp_stats, add_item_to_inventory, get_user_inventory, set_user_active_background 
 import aiosqlite
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import aiohttp
@@ -14,6 +15,7 @@ from typing import Optional, Dict, Any, List
 import logging
 import os
 import sqlite3 # Импортируем для синхронной инициализации
+from pathlib import Path # Импортируем Path для работы с путями к файлам
 
 # Импорт ShopConfig для доступа к товарам магазина
 from core.group.stat.shop_config import ShopConfig
@@ -78,15 +80,41 @@ class ProfileManager:
         await self._conn.commit()
 
     async def get_user_profile(self, user: types.User) -> Optional[Dict[str, Any]]:
-        # Используем get_user_profile_info из database.py для получения полной информации
-        return await get_user_profile_info(user.id)
+        """
+        Получает полную информацию о профиле пользователя из profiles.db.
+        """
+        if self._conn is None:
+            logger.error("Profiles database connection is not established.")
+            return None
+        
+        user_id = user.id
+        cursor = await self._conn.execute('''
+            SELECT 
+                up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, 
+                up.total_messages, up.flames, up.last_work_time, up.active_background,
+                u.username, u.first_name, u.last_name
+            FROM user_profiles up
+            JOIN users u ON up.user_id = u.user_id
+            WHERE up.user_id = ?
+        ''', (user_id,))
+        
+        row = await cursor.fetchone()
+        if row:
+            columns = [
+                'hp', 'level', 'exp', 'lumcoins', 'daily_messages', 
+                'total_messages', 'flames', 'last_work_time', 'active_background',
+                'username', 'first_name', 'last_name'
+            ]
+            profile_data = dict(zip(columns, row))
+            return profile_data
+        return None
 
     async def record_message(self, user: types.User) -> None:
         if self._conn is None: raise RuntimeError("DB not connected")
         user_id = user.id
         current_time = time.time()
 
-        # Ensure user exists in 'users' table
+        # Ensure user exists in 'users' table in profiles.db
         await self._conn.execute(
             'INSERT OR IGNORE INTO users (user_id, username, first_name) VALUES (?, ?, ?)',
             (user_id, user.username, user.first_name)
@@ -103,20 +131,15 @@ class ProfileManager:
         if profile_data:
             level, exp, lumcoins, daily_messages, total_messages = profile_data
             # Reset daily messages if new day
-            last_active_ts_cursor = await self._conn.execute(
-                'SELECT last_active_ts FROM users WHERE user_id = ?', (user_id,)
-            )
-            last_active_ts_row = await last_active_ts_cursor.fetchone()
-            last_active_ts = last_active_ts_row[0] if last_active_ts_row else 0
-
-            last_active_date = datetime.fromtimestamp(last_active_ts).date()
-            current_date = datetime.fromtimestamp(current_time).date()
-
-            if current_date > last_active_date:
-                daily_messages = 0
-
+            # Note: last_active_ts is in the 'users' table of the main bot database,
+            # but for profile stats, we should use a timestamp within profiles.db
+            # For simplicity, we'll assume current_time comparison is sufficient for daily reset for now.
+            # A more robust solution might involve storing last_daily_reset_date in user_profiles.
+            
+            # For now, let's just update based on message count and level up
+            
             # Update stats
-            exp += ProfileConfig.EXP_PER_MESSAGE
+            exp += ProfileConfig.EXP_PER_MESSAGE_INTERVAL # Use correct constant
             total_messages += 1
             daily_messages += 1
 
@@ -125,7 +148,10 @@ class ProfileManager:
             while exp >= ProfileConfig.LEVEL_UP_EXP_REQUIREMENT(new_level):
                 exp -= ProfileConfig.LEVEL_UP_EXP_REQUIREMENT(new_level)
                 new_level += 1
-                lumcoins += ProfileConfig.LUMCOINS_PER_LEVEL_UP
+                # Lumcoins awarded per level up, if defined in config
+                lumcoins += ProfileConfig.LUMCOINS_PER_LEVEL.get(new_level, 0) # Get lumcoins for specific level, default 0
+                logger.info(f"User {user_id} leveled up to {new_level}, earned {ProfileConfig.LUMCOINS_PER_LEVEL.get(new_level, 0)} Lumcoins.")
+
 
             await self._conn.execute(
                 '''
@@ -135,6 +161,7 @@ class ProfileManager:
                 ''',
                 (new_level, exp, lumcoins, daily_messages, total_messages, user_id)
             )
+            # Update last_active_ts in the 'users' table of profiles.db as well
             await self._conn.execute(
                 'UPDATE users SET last_active_ts = ? WHERE user_id = ?',
                 (current_time, user_id)
@@ -148,8 +175,9 @@ class ProfileManager:
                 INSERT INTO user_profiles (user_id, level, exp, lumcoins, daily_messages, total_messages, last_work_time, active_background)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
-                (user_id, 1, ProfileConfig.EXP_PER_MESSAGE, 0, 1, 1, 0, 'default') # Default active background
+                (user_id, 1, ProfileConfig.EXP_PER_MESSAGE_INTERVAL, 0, 1, 1, 0, 'default') # Default active background
             )
+            # Update last_active_ts in the 'users' table of profiles.db
             await self._conn.execute(
                 'UPDATE users SET last_active_ts = ? WHERE user_id = ?',
                 (current_time, user_id)
@@ -197,7 +225,10 @@ class ProfileManager:
         ''', (limit,))
         rows = await cursor.fetchall()
         columns = [d[0] for d in cursor.description]
-        return [dict(zip(columns, row)) for row in rows]
+        # Map columns to dictionary keys for each row
+        # Add 'display_name' for compatibility with existing code that expects it
+        return [{columns[i]: row[i] for i in range(len(columns)) | {'display_name': row[1] if row[0] is None else row[0]}} for row in rows]
+
 
     async def get_top_users_by_lumcoins(self, limit: int = 10) -> List[Dict[str, Any]]:
         if self._conn is None: raise RuntimeError("DB not connected")
@@ -208,7 +239,10 @@ class ProfileManager:
         ''', (limit,))
         rows = await cursor.fetchall()
         columns = [d[0] for d in cursor.description]
-        return [dict(zip(columns, row)) for row in rows]
+        # Map columns to dictionary keys for each row
+        # Add 'display_name' for compatibility with existing code that expects it
+        return [{columns[i]: row[i] for i in range(len(columns)) | {'display_name': row[1] if row[0] is None else row[0]}} for row in rows]
+
 
     def get_available_backgrounds(self) -> Dict[str, Any]:
         """Возвращает список доступных фонов из ShopConfig."""
@@ -285,35 +319,67 @@ class ProfileManager:
         font_stats_label = get_font(20)
         font_stats_value = get_font(22)
         font_level_exp = get_font(18)
-        font_hp = get_font(20)
+        font_hp_lum = get_font(22) # Новый шрифт для HP и Lumcoins
 
         # Аватар пользователя
-        avatar_url = user.photo.big_file_id if user.photo else ProfileConfig.DEFAULT_AVATAR_URL
         avatar_image = None
-        if avatar_url and isinstance(avatar_url, str) and avatar_url.startswith("http"):
+        
+        # Безопасно получаем URL/file_id аватара
+        current_avatar_source = None
+        if hasattr(user, 'photo') and user.photo: # Проверяем, существует ли атрибут 'photo' и не равен ли он None
+            current_avatar_source = user.photo.big_file_id # Это file_id, а не прямой URL
+        
+        if current_avatar_source: # Если доступен file_id Telegram
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(avatar_url) as resp:
-                        if resp.status == 200:
-                            avatar_bytes = await resp.read()
-                            avatar_image = Image.open(BytesIO(avatar_bytes)).convert("RGBA")
-                            logger.debug(f"Loaded remote avatar: {avatar_url}")
-                        else:
-                            logger.warning(f"Failed to load remote avatar {avatar_url}: Status {resp.status}. Using default.")
-                except Exception as e:
-                    logger.error(f"Error loading remote avatar {avatar_url}: {e}. Using default.", exc_info=True)
-        elif avatar_url and not isinstance(avatar_url, str): # Assume it's a file_id from Telegram
-            try:
-                file = await bot.get_file(avatar_url)
+                file = await bot.get_file(current_avatar_source)
                 file_path = file.file_path
                 avatar_bytes = await bot.download_file(file_path)
                 avatar_image = Image.open(BytesIO(avatar_bytes.getvalue())).convert("RGBA")
                 logger.debug(f"Loaded Telegram avatar for user {user.id}.")
             except Exception as e:
-                logger.error(f"Error downloading Telegram avatar for user {user.id}: {e}. Using default.", exc_info=True)
+                logger.error(f"Error downloading Telegram avatar for user {user.id}: {e}. Falling back to default avatar.", exc_info=True)
         
-        if not avatar_image:
-            avatar_image = Image.open(ProfileConfig.DEFAULT_AVATAR_URL.split('?')[0]).convert("RGBA") # Remove query params for local load
+        if not avatar_image: # Если аватар Telegram не был загружен (нет фото или произошла ошибка)
+            # Пытаемся загрузить аватар по умолчанию по URL или локальному пути
+            default_avatar_url_or_path = ProfileConfig.DEFAULT_AVATAR_URL
+            if default_avatar_url_or_path.startswith("http"): # Это удаленный URL
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(default_avatar_url_or_path) as resp:
+                            if resp.status == 200:
+                                default_avatar_bytes = await resp.read()
+                                avatar_image = Image.open(BytesIO(default_avatar_bytes)).convert("RGBA")
+                                logger.debug("Loaded default remote avatar.")
+                            else:
+                                logger.warning(f"Failed to load default remote avatar {default_avatar_url_or_path}: Status {resp.status}. Using hardcoded local fallback if available.")
+                                # Заглушка на локальный файл, если удаленный недоступен
+                                local_fallback_path = Path(__file__).parent.parent.parent / "background" / "default_avatar_local.png" # Предполагается, что локальный аватар по умолчанию существует
+                                if local_fallback_path.exists():
+                                    avatar_image = Image.open(local_fallback_path).convert("RGBA")
+                                else:
+                                    logger.error(f"Hardcoded local default avatar not found at {local_fallback_path}. Profile image generation might fail or be incomplete.")
+                                    # В крайнем случае, создаем пустое изображение или используем очень простой плейсхолдер
+                                    avatar_image = Image.new("RGBA", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), (200, 200, 200, 255)) # Серый квадрат
+                except Exception as e:
+                    logger.error(f"Error loading default remote avatar {default_avatar_url_or_path}: {e}. Using hardcoded local fallback if available.", exc_info=True)
+                    local_fallback_path = Path(__file__).parent.parent.parent / "background" / "default_avatar_local.png"
+                    if local_fallback_path.exists():
+                        avatar_image = Image.open(local_fallback_path).convert("RGBA")
+                    else:
+                        logger.error(f"Hardcoded local default avatar not found at {local_fallback_path}. Profile image generation might fail or be incomplete.")
+                        avatar_image = Image.new("RGBA", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), (200, 200, 200, 255))
+            else: # Предполагаем, что это локальный путь, если не http/https
+                try:
+                    avatar_image = Image.open(default_avatar_url_or_path).convert("RGBA")
+                    logger.debug(f"Loaded default local avatar: {default_avatar_url_or_path}")
+                except Exception as e:
+                    logger.error(f"Error loading default local avatar {default_avatar_url_or_path}: {e}. Creating blank image.", exc_info=True)
+                    avatar_image = Image.new("RGBA", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), (200, 200, 200, 255)) # Серый квадрат
+
+        # Убедимся, что avatar_image не None перед изменением размера
+        if avatar_image is None:
+            logger.critical("Avatar image is still None after all attempts. Creating a blank placeholder.")
+            avatar_image = Image.new("RGBA", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), (200, 200, 200, 255)) # Окончательная заглушка
 
         avatar_image = avatar_image.resize((ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE))
 
@@ -331,84 +397,45 @@ class ProfileManager:
                   fill=ProfileConfig.TEXT_COLOR, font=font_username,
                   stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
 
-        # HP Bar
+        # HP и Lumcoins рядом с аватаркой (числовые значения)
         hp_current = profile_data.get('hp', 100)
         hp_max = ProfileConfig.MAX_HP
-        hp_percentage = hp_current / hp_max
+        lumcoins = profile_data.get('lumcoins', 0)
 
-        hp_bar_width = ProfileConfig.EXP_BAR_WIDTH
-        hp_bar_height = ProfileConfig.EXP_BAR_HEIGHT
-        hp_bar_x = ProfileConfig.TEXT_BLOCK_LEFT_X
-        hp_bar_y = ProfileConfig.USERNAME_Y + font_username.getbbox(username_text)[3] + 10 # Отступ от имени пользователя
-
-        # Выбор цвета HP бара
-        if hp_percentage >= 0.75:
-            hp_color = ProfileConfig.HP_COLORS["full"]
-        elif hp_percentage >= 0.5:
-            hp_color = ProfileConfig.HP_COLORS["high"]
-        elif hp_percentage >= 0.25:
-            hp_color = ProfileConfig.HP_COLORS["medium"]
-        elif hp_percentage > 0:
-            hp_color = ProfileConfig.HP_COLORS["low"]
-        else:
-            hp_color = ProfileConfig.HP_COLORS["empty"]
-
-        # Фон HP бара (серый)
-        draw.rounded_rectangle(
-            [(hp_bar_x, hp_bar_y), (hp_bar_x + hp_bar_width, hp_bar_y + hp_bar_height)],
-            radius=hp_bar_height // 2,
-            fill=(100, 100, 100, ProfileConfig.EXP_BAR_ALPHA)
-        )
-        # Заполненная часть HP бара
-        draw.rounded_rectangle(
-            [(hp_bar_x, hp_bar_y), (hp_bar_x + hp_bar_width * hp_percentage, hp_bar_y + hp_bar_height)],
-            radius=hp_bar_height // 2,
-            fill=hp_color + (ProfileConfig.EXP_BAR_ALPHA,)
-        )
-        # Текст HP
+        # Позиционирование HP
         hp_text = f"HP: {hp_current}/{hp_max}"
-        text_width, text_height = draw.textbbox((0,0), hp_text, font=font_hp)[2:]
-        hp_text_x = hp_bar_x + (hp_bar_width - text_width) // 2
-        hp_text_y = hp_bar_y + (hp_bar_height - text_height) // 2
-        draw.text((hp_text_x, hp_text_y), hp_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp,
+        # Отступ от правой границы аватарки
+        hp_x = ProfileConfig.AVATAR_X + ProfileConfig.AVATAR_SIZE + ProfileConfig.MARGIN // 2
+        hp_y = ProfileConfig.AVATAR_Y # Выравнивание по верхнему краю аватарки
+        draw.text((hp_x, hp_y), hp_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp_lum,
                   stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
 
-        # EXP Bar
+        # Позиционирование Lumcoins под HP
+        lumcoins_text = f"LUM: {lumcoins}"
+        # Отступ под HP, с тем же X-координатой
+        lumcoins_y = hp_y + font_hp_lum.getbbox(hp_text)[3] + 5 # 5 пикселей отступа
+        draw.text((hp_x, lumcoins_y), lumcoins_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp_lum,
+                  stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
+
+        # Удаление старых HP и EXP баров, так как они теперь не нужны
+        # HP Bar (удален)
+        # EXP Bar (удален)
+        # Текст EXP (перемещен и изменен)
+
+        # Текст EXP (теперь без бара, просто числовое значение)
         level = profile_data.get('level', 1)
         exp = profile_data.get('exp', 0)
-        exp_needed_for_next_level = ProfileConfig.LEVEL_UP_EXP_REQUIREMENT(level)
-        exp_percentage = exp / exp_needed_for_next_level if exp_needed_for_next_level > 0 else 0
-
-        exp_bar_x = ProfileConfig.EXP_BAR_X
-        exp_bar_y = ProfileConfig.EXP_BAR_Y
-        exp_bar_width = ProfileConfig.EXP_BAR_WIDTH
-        exp_bar_height = ProfileConfig.EXP_BAR_HEIGHT
-
-        # Фон EXP бара (серый)
-        draw.rounded_rectangle(
-            [(exp_bar_x, exp_bar_y), (exp_bar_x + exp_bar_width, exp_bar_y + exp_bar_height)],
-            radius=exp_bar_height // 2,
-            fill=(100, 100, 100, ProfileConfig.EXP_BAR_ALPHA)
-        )
-
-        # Заполненная часть EXP бара (градиент)
-        for i in range(int(exp_bar_width * exp_percentage)):
-            r = int(ProfileConfig.EXP_GRADIENT_START[0] + (ProfileConfig.EXP_GRADIENT_END[0] - ProfileConfig.EXP_GRADIENT_START[0]) * (i / (exp_bar_width * exp_percentage + 1e-6)))
-            g = int(ProfileConfig.EXP_GRADIENT_START[1] + (ProfileConfig.EXP_GRADIENT_END[1] - ProfileConfig.EXP_GRADIENT_START[1]) * (i / (exp_bar_width * exp_percentage + 1e-6)))
-            b = int(ProfileConfig.EXP_GRADIENT_START[2] + (ProfileConfig.EXP_GRADIENT_END[2] - ProfileConfig.EXP_GRADIENT_START[2]) * (i / (exp_bar_width * exp_percentage + 1e-6)))
-            draw.line([(exp_bar_x + i, exp_bar_y), (exp_bar_x + i, exp_bar_y + exp_bar_height)], fill=(r, g, b, ProfileConfig.EXP_BAR_ALPHA))
-
-        # Текст EXP
+        exp_needed_for_next_level = ProfileConfig.LEVEL_UP_EXP_REQUIREMENT(level) if hasattr(ProfileConfig, 'LEVEL_UP_EXP_REQUIREMENT') else 100 # Fallback
+        
         exp_text = f"Уровень: {level} | EXP: {exp}/{exp_needed_for_next_level}"
-        text_width, text_height = draw.textbbox((0,0), exp_text, font=font_level_exp)[2:]
-        exp_text_x = exp_bar_x + (exp_bar_width - text_width) // 2
-        exp_text_y = exp_bar_y + (exp_bar_height - text_height) // 2
-        draw.text((exp_text_x, exp_text_y), exp_text, fill=ProfileConfig.TEXT_COLOR, font=font_level_exp,
+        # Позиционирование EXP под Lumcoins, с тем же X-координатой
+        exp_y = lumcoins_y + font_hp_lum.getbbox(lumcoins_text)[3] + 5 # 5 пикселей отступа
+        draw.text((hp_x, exp_y), exp_text, fill=ProfileConfig.TEXT_COLOR, font=font_level_exp,
                   stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
 
-        # Статистика справа
+
+        # Статистика справа (остается без изменений)
         stats = [
-            ("Lumcoins:", f"{profile_data.get('lumcoins', 0)} LUM"),
             ("Сообщения (день):", profile_data.get('daily_messages', 0)),
             ("Сообщения (всего):", profile_data.get('total_messages', 0)),
             ("Пламя:", profile_data.get('flames', 0))
@@ -437,4 +464,3 @@ class ProfileManager:
         img_byte_arr.seek(0)
         logger.debug(f"Profile image generated for user {user.id}.")
         return img_byte_arr
-

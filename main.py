@@ -16,11 +16,6 @@ from rp_module_refactored import cmd_check_self_hp, cmd_show_rp_actions_list, ha
 
 
 async def main():
-    """
-    Основная функция запуска бота.
-    Инициализирует все менеджеры, базы данных, регистрирует обработчики
-    и запускает поллинг бота.
-    """
     logger.info("main: Запуск основной функции бота.")
 
     profile_manager = ProfileManager()
@@ -109,9 +104,7 @@ async def main():
     # в stat_router и rp_router уже не будут вызываться.
     logger.info("main: Включение stat_router в group_text_router.")
     setup_stat_handlers(
-        dp=group_text_router, # Передаем group_text_router вместо dp
-        bot=bot,
-        profile_manager=profile_manager
+        main_dp=group_text_router # Удалены аргументы bot и profile_manager
     )
     # Включаем rp_router в group_text_router, если он должен работать в группах
     logger.info("main: Включение rp_router в group_text_router.")
@@ -189,4 +182,3 @@ if __name__ == '__main__':
         logger.info("main: Бот остановлен вручную (KeyboardInterrupt).")
     except Exception as e:
         logger.critical(f"main: Необработанное исключение при основном выполнении: {e}", exc_info=True)
-
