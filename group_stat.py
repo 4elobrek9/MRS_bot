@@ -1,6 +1,7 @@
 from core.group.stat.smain import *
 from core.group.stat.config import *
 from core.group.stat.manager import ProfileManager
+from core.group.stat.shop_config import *
 import string # Добавлен импорт string
 import time # Добавлен импорт time
 import random # Добавлен импорт random

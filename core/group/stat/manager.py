@@ -396,7 +396,8 @@ class ProfileManager:
         card.paste(avatar_image, ProfileConfig.AVATAR_OFFSET, avatar_mask)
 
         # Текст: Имя пользователя
-        username_text = user.first_name
+        # Отображаем @username, если он есть, иначе first_name
+        username_text = f"@{user.username}" if user.username else user.first_name
         draw.text((ProfileConfig.TEXT_BLOCK_LEFT_X, ProfileConfig.USERNAME_Y), username_text,
                   fill=ProfileConfig.TEXT_COLOR, font=font_username,
                   stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
