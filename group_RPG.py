@@ -29,39 +29,24 @@ async def show_inventory(message: types.Message, profile_manager: ProfileManager
     
     # Раздел "Фоны"
     text += "🖼️ **Фоны:**\n"
-    if not user_backgrounds:
-        text += "   У вас пока нет фонов в инвентаре.\n"
-    else:
+    if user_backgrounds:
         for bg_key in user_backgrounds:
             bg_info = ShopConfig.SHOP_BACKGROUNDS.get(bg_key)
-            if bg_info:
-                status = " (активный)" if bg_key == active_background_key else ""
-                builder.row(
-                    InlineKeyboardButton(
-                        text=f"{bg_info['name']}{status}",
-                        callback_data=f"activate_background:{bg_key}"
-                    )
-                )
-            else:
-                logger.warning(f"Unknown background key '{bg_key}' found in user {user_id} inventory.")
-    
-    if user_backgrounds: # Только если есть фоны, добавляем кнопки
-        await message.reply(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+            bg_name = bg_info['name'] if bg_info else bg_key
+            status = ""
+            if bg_key == active_background_key:
+                status = " (Активно)"
+            builder.add(InlineKeyboardButton(text=f"🎨 {bg_name}{status}", callback_data=f"activate_bg:{bg_key}"))
     else:
-        await message.reply(text, parse_mode="Markdown")
-
+        text += "У вас пока нет фонов. Загляните в /магазин!\n"
+    
+    builder.adjust(1)
+    await message.answer(text, reply_markup=builder.as_markup())
     logger.info(f"Inventory list sent to user {user_id}.")
 
-@rpg_router.callback_query(F.data.startswith("activate_background:"))
-async def activate_background_callback(callback: types.CallbackQuery, profile_manager: ProfileManager):
-    original_command_message = callback.message.reply_to_message
-    
-    if not original_command_message or callback.from_user.id != original_command_message.from_user.id:
-        await callback.answer("Вы не можете использовать этот инвентарь.", show_alert=True)
-        return
 
-    await callback.answer() # Отвечаем на callback, чтобы убрать "часики"
-
+@rpg_router.callback_query(F.data.startswith("activate_bg:"))
+async def process_activate_background(callback: types.CallbackQuery, profile_manager: ProfileManager):
     user_id = callback.from_user.id
     background_key_to_activate = callback.data.split(":")[1]
 
@@ -89,9 +74,6 @@ async def activate_background_callback(callback: types.CallbackQuery, profile_ma
             reply_markup=None
         )
 
-def setup_rpg_handlers(dp, bot, profile_manager):
-    logger.info("Registering RPG router handlers.")
-    dp.include_router(rpg_router)
+def setup_rpg_handlers(main_dp: Router):
+    main_dp.include_router(rpg_router)
     logger.info("RPG router included in Dispatcher.")
-    return dp
-

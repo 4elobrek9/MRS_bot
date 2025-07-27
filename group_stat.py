@@ -74,7 +74,8 @@ async def show_shop(message: types.Message, profile_manager: ProfileManager):
 
     for key, bg_info in available_backgrounds.items():
         name = bg_info['name']
-        price = bg_info['price']
+        # Безопасное получение цены, если она отсутствует, по умолчанию 0
+        price = bg_info.get('price', 0) 
         
         status = ""
         if key in user_backgrounds_inventory:
@@ -108,7 +109,7 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
         return
 
     bg_name = bg_info['name']
-    bg_price = bg_info['price']
+    bg_price = bg_info.get('price', 0) # Безопасное получение цены
     user_lumcoins = await profile_manager.get_lumcoins(user_id)
     user_backgrounds_inventory = await profile_manager.get_user_backgrounds_inventory(user_id)
 
