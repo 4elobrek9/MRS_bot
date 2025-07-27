@@ -1,14 +1,17 @@
 from core.group.stat.smain import *
 from core.group.stat.config import *
 from core.group.stat.manager import ProfileManager
+from core.group.stat.shop_config import *
 import string # Добавлен импорт string
 import time # Добавлен импорт time
 import random # Добавлен импорт random
+from database import add_item_to_inventory, set_user_active_background
 
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink
 from aiogram.enums import ParseMode # Добавлен импорт ParseMode
+from core.group.stat.config import WorkConfig, ProfileConfig
 
 formatter = string.Formatter()
 
@@ -109,7 +112,7 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
         return
 
     bg_name = bg_info['name']
-    bg_price = bg_info.get('price', 0) # Безопасное получение цены
+    bg_price = bg_info.get('price', 0)
     user_lumcoins = await profile_manager.get_lumcoins(user_id)
     user_backgrounds_inventory = await profile_manager.get_user_backgrounds_inventory(user_id)
 
@@ -119,14 +122,19 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
         return
 
     if user_lumcoins >= bg_price:
-        await profile_manager.update_lumcoins(user_id, -bg_price) # Списываем Lumcoins
-        # set_user_background уже вызывает add_item_to_inventory внутри
-        await profile_manager.set_user_background(user_id, background_key_to_buy) # Добавляем в инвентарь и устанавливаем активным
+        # Сначала списываем Lumcoins
+        await profile_manager.update_lumcoins(user_id, -bg_price)
+        
+        # Добавляем в инвентарь
+        await add_item_to_inventory(user_id, background_key_to_buy, 'background')
+        
+        # Устанавливаем активный фон через профиль менеджер
+        await profile_manager.set_user_background(user_id, background_key_to_buy)
         
         logger.info(f"User {user_id} successfully bought and activated background '{bg_name}'.")
         await callback.message.edit_text(
-            f"🎉 Вы успешно купили и активировали фон '{bg_name}' за {bg_price} Lumcoins! Ваш профиль теперь выглядит по-новому.",
-            reply_markup=None # Убираем кнопки после покупки
+            f"🎉 Вы успешно купили и активировали фон '{bg_name}' за {bg_price} Lumcoins!",
+            reply_markup=None
         )
     else:
         logger.info(f"User {user_id} tried to buy background '{bg_name}' but has insufficient Lumcoins ({user_lumcoins}/{bg_price}).")
@@ -134,7 +142,7 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             f"❌ Недостаточно Lumcoins для покупки фона '{bg_name}'. Вам нужно {bg_price} Lumcoins, у вас {user_lumcoins}.",
             reply_markup=None
         )
-
+        
 
 @stat_router.callback_query(F.data.startswith("activate_bg:"))
 async def process_activate_background(callback: types.CallbackQuery, profile_manager: ProfileManager):

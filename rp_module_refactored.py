@@ -77,6 +77,8 @@ async def handle_rp_action(
 
     hp_change_sender = action_data.get("hp_change_sender", 0)
     hp_change_target = action_data.get("hp_change_target", 0)
+    # Получаем глагол в нужной форме, если его нет - используем название команды
+    action_verb = action_data.get("verb", action_name)
 
     # Check if sender is knocked out
     if await is_user_knocked_out(profile_manager, sender_id, bot, message):
@@ -111,11 +113,10 @@ async def handle_rp_action(
         new_target_hp, target_knocked_out = await _update_user_hp(profile_manager, target_id, hp_change_target)
 
         # Formulate action message with new formatting
-        # Escape action_name and custom_text
-        escaped_action_name = html.escape(action_name)
         escaped_custom_text = html.escape(custom_text) if custom_text else ""
-
-        action_message = f"{sender_name} {escaped_action_name} {target_name}"
+        
+        # Используем action_verb вместо action_name
+        action_message = f"{sender_name} {html.escape(action_verb)} {target_name}"
         if escaped_custom_text: # Add additional text if present
             action_message += f" {escaped_custom_text}"
         
@@ -133,10 +134,10 @@ async def handle_rp_action(
         logger.info(f"RP Action '{action_name}' performed by {sender_id} on {target_id}. Sender HP: {new_sender_hp}, Target HP: {new_target_hp}.")
     else:
         # Action without a target (e.g., "laugh")
-        escaped_action_name = html.escape(action_name)
         escaped_custom_text = html.escape(custom_text) if custom_text else ""
 
-        action_message = f"{sender_name} {escaped_action_name}"
+        # Используем action_verb вместо action_name
+        action_message = f"{sender_name} {html.escape(action_verb)}"
         if escaped_custom_text: # Add additional text if present
             action_message += f" {escaped_custom_text}"
         action_message += f"\n(HP {sender_name}: {new_sender_hp}/{RPConfig.MAX_HP})"
@@ -199,16 +200,16 @@ async def cmd_show_rp_actions_list(message: types.Message, bot: Bot):
             hp_sender = data.get('hp_change_sender', 0)
             
             hp_info = []
-            if hp_target != 0:
-                hp_info.append(f"Цель: {hp_target:+d} HP")
-            if hp_sender != 0:
-                hp_info.append(f"Вы: {hp_sender:+d} HP")
+            # if hp_target != 0:
+            #     hp_info.append(f"Цель: {hp_target:+d} HP")
+            # if hp_sender != 0:
+            #     hp_info.append(f"Вы: {hp_sender:+d} HP")
             
             hp_str = f" ({', '.join(hp_info)})" if hp_info else ""
             
             # Escape action_name to avoid HTML parsing issues
             escaped_action_name = html.escape(action_name)
-            response_text += f"  - /{escaped_action_name}{hp_str}\n" 
+            response_text += f"  - {escaped_action_name}{hp_str}\n" 
 
     # Escaping angle brackets in the instruction string
     response_text += "\nИспользуйте команду в формате: /&lt;действие&gt; или &lt;действие&gt; &lt;@пользователь&gt; [дополнительный текст]"
@@ -218,10 +219,7 @@ async def cmd_show_rp_actions_list(message: types.Message, bot: Bot):
 
 @rp_router.message(F.text)
 async def handle_rp_action_via_text(message: types.Message, bot: Bot, profile_manager: ProfileManager):
-    """
-    Handles RP actions sent as text (without a slash).
-    Uses message.text to get the message text.
-    """
+
     logger.debug(f"handle_rp_action_via_text: Received text message: '{message.text}' from user {message.from_user.id}.")
 
     action_name, target_user, custom_text = await _parse_rp_message(message, bot)
@@ -349,3 +347,4 @@ def setup_rp_handlers(main_dp: Router, bot_instance: Bot, profile_manager_instan
     # Register handlers
     main_dp.include_router(rp_router)
     logger.info("RP router included and configured.")
+

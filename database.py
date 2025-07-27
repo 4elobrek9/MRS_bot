@@ -11,6 +11,16 @@ logger = logging.getLogger(__name__)
 DB_FILE = Path("data") / "bot_database.db"
 DB_FILE.parent.mkdir(exist_ok=True)
 
+async def check_user_owns_item(user_id: int, item_key: str, item_type: str) -> bool:
+    """Проверяет, есть ли у пользователя предмет в инвентаре"""
+    async with aiosqlite.connect(DB_FILE) as db:
+        cursor = await db.execute(
+            'SELECT 1 FROM user_inventory WHERE user_id = ? AND item_key = ? AND item_type = ?',
+            (user_id, item_key, item_type)
+        )
+        result = await cursor.fetchone()
+        return result is not None
+
 async def initialize_database() -> None:
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''

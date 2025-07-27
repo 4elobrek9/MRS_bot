@@ -7,6 +7,7 @@ import logging
 from core.group.stat.manager import ProfileManager
 from core.group.stat.shop_config import ShopConfig # Для доступа к информации о фонах
 from database import set_user_active_background # Для установки активного фона
+from aiogram.enums import ParseMode  # ← Добавьте эту строку
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +34,18 @@ async def show_inventory(message: types.Message, profile_manager: ProfileManager
         for bg_key in user_backgrounds:
             bg_info = ShopConfig.SHOP_BACKGROUNDS.get(bg_key)
             bg_name = bg_info['name'] if bg_info else bg_key
-            status = ""
-            if bg_key == active_background_key:
-                status = " (Активно)"
-            builder.add(InlineKeyboardButton(text=f"🎨 {bg_name}{status}", callback_data=f"activate_bg:{bg_key}"))
+            status = " ✅ (Активно)" if bg_key == active_background_key else ""
+            
+            # Кнопка для активации фона
+            builder.row(InlineKeyboardButton(
+                text=f"🎨 {bg_name}{status}", 
+                callback_data=f"activate_bg:{bg_key}"
+            ))
     else:
         text += "У вас пока нет фонов. Загляните в /магазин!\n"
     
     builder.adjust(1)
-    await message.answer(text, reply_markup=builder.as_markup())
+    await message.answer(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
     logger.info(f"Inventory list sent to user {user_id}.")
 
 
@@ -56,21 +60,22 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
     user_backgrounds_inventory = await profile_manager.get_user_backgrounds_inventory(user_id)
 
     if background_key_to_activate in user_backgrounds_inventory:
-        await set_user_active_background(user_id, background_key_to_activate)
+        # Устанавливаем активный фон
+        await profile_manager.set_user_background(user_id, background_key_to_activate)
         
-        # Получаем информацию о фоне для отображения имени
+        # Получаем информацию о фоне
         bg_info = ShopConfig.SHOP_BACKGROUNDS.get(background_key_to_activate)
         bg_name = bg_info['name'] if bg_info else background_key_to_activate
 
         logger.info(f"User {user_id} successfully activated background '{bg_name}'.")
         await callback.message.edit_text(
-            f"✅ Фон '{bg_name}' успешно активирован! Ваш профиль теперь выглядит по-новому.",
-            reply_markup=None # Убираем кнопки после активации
+            f"✅ Фон '{bg_name}' успешно активирован!",
+            reply_markup=None
         )
     else:
         logger.warning(f"User {user_id} tried to activate background '{background_key_to_activate}' not in inventory.")
         await callback.message.edit_text(
-            "❌ Этого фона нет в вашем инвентаре или произошла ошибка.",
+            "❌ Этого фона нет в вашем инвентаре.",
             reply_markup=None
         )
 
