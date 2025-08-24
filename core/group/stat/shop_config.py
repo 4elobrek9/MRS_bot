@@ -1,7 +1,8 @@
 class ShopConfig:
     # Настройки для магазина
     SHOP_BACKGROUNDS = {
-        "forest_1": {"name": "Лес (День)", "price": 5, "url": "background/forest(day).jpg"},
+        "default": {"name": "Стандартный фон", "price": 0, "url": "../background/defolt.jpg"},
+        "forest_1": {"name": "Лес (День)", "price": 5, "url": "../background/forest(day).jpg"},
         "night_city_1": {"name": "Ночной город", "price": 750, "url": "https://placehold.co/200x100/2F4F4F/FFFFFF?text=Город"},
         "mountains_1": {"name": "Горный пейзаж", "price": 600, "url": "https://placehold.co/200x100/8B4513/FFFFFF?text=Горы"},
         "space_1": {"name": "Космос", "price": 1000, "url": "https://placehold.co/200x100/4B0082/FFFFFF?text=Космос"},

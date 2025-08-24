@@ -49,8 +49,10 @@ class ProfileConfig:
     MAX_HP = 150
     MIN_HP = 0
     MAX_LEVEL = 169
-    EXP_PER_MESSAGE_INTERVAL = 10
-    EXP_AMOUNT_PER_INTERVAL = 1
+    EXP_PER_MESSAGE_INTERVAL = 1
+    EXP_AMOUNT_PER_INTERVAL = 10
+    EXP_PER_MESSAGES_COUNT = 10
+    
     LUMCOINS_PER_LEVEL = {
         1: 1, 10: 2, 20: 3, 30: 5,
         50: 8, 100: 15, 150: 25, 169: 50
@@ -61,6 +63,11 @@ class ProfileConfig:
     FONT_SIZE_LARGE = 28
     FONT_SIZE_MEDIUM = 20
     FONT_SIZE_SMALL = 16
+    @staticmethod
+    def LEVEL_UP_EXP_REQUIREMENT(level: int) -> int:
+        """Рассчитывает необходимое количество опыта для достижения следующего уровня"""
+        # Пример: 100 опыта для 1 уровня, 200 для 2, 300 для 3 и т.д.
+        return level * 100
 
 class WorkConfig:
     WORK_TASKS = {
@@ -76,3 +83,22 @@ class WorkConfig:
         "смотрел(а) в окно": 2
     }
     COOLDOWN_SECONDS = 15 * 60  # 15 минут в секундах
+
+class AchievementsConfig:
+    MESSAGE_MILESTONES = {
+        100: "Новичок",
+        500: "Активный участник", 
+        1000: "Ветеран чата",
+        5000: "Легенда"
+    }
+
+# В record_message после увеличения total_messages
+# for milestone, title in AchievementsConfig.MESSAGE_MILESTONES.items():
+#     if total_messages == milestone:
+#         # Награда за достижение
+#         lumcoins += milestone // 10
+#         # Уведомление пользователю
+#         await bot.send_message(
+#             user_id,
+#             f"🏆 Достижение: {title}! Вы отправили {milestone} сообщений. Награда: {milestone // 10} Lumcoins."
+#         )

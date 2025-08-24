@@ -6,7 +6,6 @@ import logging
 
 from core.group.stat.manager import ProfileManager
 from core.group.stat.shop_config import ShopConfig # Для доступа к информации о фонах
-from database import set_user_active_background # Для установки активного фона
 from aiogram.enums import ParseMode  # ← Добавьте эту строку
 
 logger = logging.getLogger(__name__)
@@ -44,6 +43,13 @@ async def show_inventory(message: types.Message, profile_manager: ProfileManager
     else:
         text += "У вас пока нет фонов. Загляните в /магазин!\n"
     
+    # Добавляем кнопку для возврата к фону по умолчанию
+    default_status = " ✅ (Активно)" if active_background_key == 'default' else ""
+    builder.row(InlineKeyboardButton(
+        text=f"🔙 Вернуть стандартный фон{default_status}", 
+        callback_data="reset_bg_to_default"
+    ))
+    
     builder.adjust(1)
     await message.answer(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
     logger.info(f"Inventory list sent to user {user_id}.")
@@ -78,6 +84,23 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
             "❌ Этого фона нет в вашем инвентаре.",
             reply_markup=None
         )
+
+
+@rpg_router.callback_query(F.data == "reset_bg_to_default")
+async def process_reset_background_to_default(callback: types.CallbackQuery, profile_manager: ProfileManager):
+    user_id = callback.from_user.id
+
+    logger.info(f"User {user_id} attempting to reset background to default.")
+    
+    # Устанавливаем фон по умолчанию
+    await profile_manager.set_user_background(user_id, 'default')
+    
+    logger.info(f"User {user_id} successfully reset background to default.")
+    await callback.message.edit_text(
+        "✅ Стандартный фон успешно активирован!",
+        reply_markup=None
+    )
+
 
 def setup_rpg_handlers(main_dp: Router):
     main_dp.include_router(rpg_router)

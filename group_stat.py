@@ -6,12 +6,17 @@ import string # Добавлен импорт string
 import time # Добавлен импорт time
 import random # Добавлен импорт random
 from database import add_item_to_inventory, set_user_active_background
+import asyncio  # Добавьте эту строку в начале файла
+import aiosqlite  # Убедитесь, что этот импорт тоже есть
 
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink
 from aiogram.enums import ParseMode # Добавлен импорт ParseMode
 from core.group.stat.config import WorkConfig, ProfileConfig
+
+import logging
+logger = logging.getLogger(__name__)
 
 formatter = string.Formatter()
 
@@ -28,6 +33,12 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         logger.error(f"Failed to load profile for user {message.from_user.id} after /profile command.")
         await message.reply("❌ Не удалось загрузить профиль!")
         return
+    
+    # Синхронизация HP с основной базой данных
+    from database import get_user_rp_stats
+    rp_stats = await get_user_rp_stats(message.from_user.id)
+    if rp_stats:
+        profile['hp'] = rp_stats.get('hp', 100)
     
     logger.debug(f"Generating profile image for user {message.from_user.id}.")
     image_bytes = await profile_manager.generate_profile_image(message.from_user, profile, bot)
@@ -142,7 +153,6 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             f"❌ Недостаточно Lumcoins для покупки фона '{bg_name}'. Вам нужно {bg_price} Lumcoins, у вас {user_lumcoins}.",
             reply_markup=None
         )
-        
 
 @stat_router.callback_query(F.data.startswith("activate_bg:"))
 async def process_activate_background(callback: types.CallbackQuery, profile_manager: ProfileManager):
@@ -164,13 +174,24 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
 
         logger.info(f"User {user_id} successfully activated background '{bg_name}'.")
         await callback.message.edit_text(
-            f"✅ Фон '{bg_name}' успешно активирован! Ваш профиль теперь выглядит по-новому.",
-            reply_markup=None # Убираем кнопки после активации
+            f"✅ Фон '{bg_name}' успешно активирован!",
+            reply_markup=None
         )
+        
+        # Добавляем небольшую задержку и обновляем профиль
+        await asyncio.sleep(1)
+        try:
+            user_profile = await profile_manager.get_user_profile(callback.from_user)
+            if user_profile:
+                image_bytes = await profile_manager.generate_profile_image(callback.from_user, user_profile, bot)
+            from core.main.ez_main import bot
+            await bot.send_photo(callback.message.chat.id, BufferedInputFile(image_bytes.getvalue(), filename="profile_updated.png"))
+        except Exception as e:
+            logger.error(f"Error showing updated profile: {e}")
     else:
         logger.warning(f"User {user_id} tried to activate background '{background_key_to_activate}' not in inventory.")
         await callback.message.edit_text(
-            "❌ Этого фона нет в вашем инвентаре или произошла ошибка.",
+            "❌ Этого фона нет в вашем инвентаре.",
             reply_markup=None
         )
 
@@ -214,8 +235,25 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     Создает записи, если их нет.
     """
     # Подключение к основной БД бота
-    main_db_conn = await aiosqlite.connect('bot_database.db')
     try:
+        main_db_conn = await aiosqlite.connect('bot_database.db')
+        # Проверяем существование таблицы users
+        cursor = await main_db_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        table_exists = await cursor.fetchone()
+        
+        if not table_exists:
+            # Если таблицы нет, создаем её
+            await main_db_conn.execute('''
+                CREATE TABLE users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT NOT NULL,
+                    last_active_ts REAL DEFAULT 0
+                )
+            ''')
+            await main_db_conn.commit()
+            
+        # Остальной код без изменений
         await main_db_conn.execute('''
             INSERT INTO users (user_id, username, first_name, last_active_ts)
             VALUES (?, ?, ?, ?)
@@ -254,7 +292,8 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     except Exception as e:
         logger.error(f"Error ensuring user {user_id} in profiles database: {e}", exc_info=True)
     finally:
-        await profiles_db_conn.close()
+        if main_db_conn:
+            await main_db_conn.close()
 
 
 def setup_stat_handlers(main_dp: Router):

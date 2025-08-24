@@ -1,4 +1,6 @@
 from core.main.ez_main import *
+from datetime import datetime, timedelta
+from core.group.stat.config import ProfileConfig
 
 async def cmd_help(message: types.Message):
     """Показывает список всех доступных команд"""
@@ -172,3 +174,46 @@ async def jokes_task(bot_instance: Bot):
             logger.info("Finished periodic jokes cache update.")
         except Exception as e:
             logger.error(f"Error during periodic jokes cache update: {e}", exc_info=True)
+
+async def reset_daily_stats_task(profile_manager: ProfileManager):
+    """Фоновая задача для ежедневного сброса статистики"""
+    logger.info("Daily stats reset task started.")
+    
+    while True:
+        try:
+            now = datetime.now()
+            # Вычисляем время до следующей полуночи
+            next_midnight = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            wait_seconds = (next_midnight - now).total_seconds()
+            
+            logger.info(f"Daily stats reset will run in {wait_seconds} seconds.")
+            await asyncio.sleep(wait_seconds)
+            
+            # Сбрасываем daily_messages для всех пользователей
+            if hasattr(profile_manager, '_conn') and profile_manager._conn:
+                await profile_manager._conn.execute('UPDATE user_profiles SET daily_messages = 0')
+                await profile_manager._conn.commit()
+                logger.info("Daily messages reset for all users.")
+                
+        except Exception as e:
+            logger.error(f"Error in daily stats reset task: {e}")
+            await asyncio.sleep(3600)  # Ждем час при ошибке
+
+async def migrate_existing_users_exp():
+    """Миграция EXP для существующих пользователей"""
+    async with aiosqlite.connect('profiles.db') as conn:
+        cursor = await conn.execute('SELECT user_id, total_messages, exp FROM user_profiles')
+        users = await cursor.fetchall()
+        
+        for user_id, total_messages, old_exp in users:
+            # Пересчитываем EXP: 1 EXP за каждые 10 сообщений
+            new_exp = total_messages // ProfileConfig.EXP_PER_MESSAGES_COUNT
+            
+            await conn.execute(
+                'UPDATE user_profiles SET exp = ? WHERE user_id = ?',
+                (new_exp, user_id)
+            )
+        
+        await conn.commit()
+        logger.info(f"Migrated EXP for {len(users)} users")
+

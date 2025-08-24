@@ -2,6 +2,8 @@ from core.main.ez_main import *
 from core.main.ollama import *
 from core.main.command import *
 from core.main.dec_command import *
+from core.group.stat.manager import ProfileManager
+
 import censor_module
 from pathlib import Path
 from core.group.RP.actions import RPActions
@@ -111,9 +113,24 @@ async def main():
     dp.include_router(private_router)
     logger.info("main: private_router успешно интегрирован в главный диспетчер.")
 
+    profile_manager = ProfileManager()
+    try:
+        await profile_manager.connect()
+        logger.info("main: ProfileManager подключен.")
+        
+        # Синхронизируем профили с основной базой данных
+        # from core.group.stat.manager import sync_profiles_with_main_db
+        # await sync_profiles_with_main_db()
+        
+    except Exception as e:
+        logger.critical(f"main: Не удалось подключить ProfileManager: {e}. Бот не будет запущен.", exc_info=True)
+        exit(1)
+    
     logger.info("main: Запуск фоновых задач.")
     jokes_bg_task = asyncio.create_task(jokes_task(bot))
     rp_recovery_bg_task = asyncio.create_task(periodic_hp_recovery_task(bot, profile_manager, db))
+    daily_reset_task = asyncio.create_task(reset_daily_stats_task(profile_manager))
+    await migrate_existing_users_exp()
 
     logger.info("main: Запуск поллинга бота...")
     try:
@@ -124,7 +141,7 @@ async def main():
         logger.info("main: Остановка бота...")
         jokes_bg_task.cancel()
         rp_recovery_bg_task.cancel()
-
+        daily_reset_task.cancel()
         try:
             await asyncio.gather(jokes_bg_task, rp_recovery_bg_task, return_exceptions=True)
             logger.info("main: Фоновые задачи успешно отменены.")

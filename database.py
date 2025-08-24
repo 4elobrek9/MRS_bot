@@ -105,6 +105,20 @@ async def initialize_database() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                user_id INTEGER PRIMARY KEY,
+                hp INTEGER DEFAULT 100,
+                level INTEGER DEFAULT 1,
+                exp INTEGER DEFAULT 0,
+                lumcoins INTEGER DEFAULT 0,
+                daily_messages INTEGER DEFAULT 0,
+                total_messages INTEGER DEFAULT 0,
+                flames INTEGER DEFAULT 0,
+                active_background TEXT DEFAULT 'default',
+                FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        ''')
         await db.commit()
     logger.info("Database initialized successfully.")
 
@@ -133,7 +147,7 @@ async def get_user_profile_info(user_id: int) -> Optional[Dict[str, Any]]:
         # Обновленный запрос для получения active_background из user_profiles
         cursor = await db.execute('''
             SELECT u.user_id, u.username, u.first_name, u.last_active_ts,
-                   up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, up.total_messages, up.flames, up.active_background
+                   up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, up.total_messages, up.flames
             FROM users u
             LEFT JOIN user_profiles up ON u.user_id = up.user_id
             WHERE u.user_id = ?
@@ -153,7 +167,7 @@ async def get_user_profile_info(user_id: int) -> Optional[Dict[str, Any]]:
                 "daily_messages": row[8],
                 "total_messages": row[9],
                 "flames": row[10],
-                "active_background": row[11] # Добавлено поле active_background
+                # УДАЛИТЬ ЭТУ СТРОКУ: "active_background": row[11]
             }
         return None
 
@@ -378,10 +392,85 @@ async def get_user_inventory(user_id: int, item_type: str = 'background') -> Lis
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
 
+    async def set_user_active_background(user_id: int, background_key: str) -> None:
+        """Устанавливает активный фон для пользователя в основной базе данных."""
+        async with aiosqlite.connect(DB_FILE) as db:
+            try:
+                # Сначала проверяем, существует ли таблица user_profiles
+                cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
+                table_exists = await cursor.fetchone()
+                
+                if not table_exists:
+                    logger.error("Table user_profiles does not exist in main database")
+                    return
+                    
+                # Проверяем, есть ли колонка active_background в таблице user_profiles
+                cursor = await db.execute("PRAGMA table_info(user_profiles)")
+                columns = await cursor.fetchall()
+                has_active_background = any('active_background' in column for column in columns)
+                
+                if not has_active_background:
+                    # Добавляем колонку если её нет
+                    await db.execute('ALTER TABLE user_profiles ADD COLUMN active_background TEXT DEFAULT "default"')
+                    await db.commit()
+                    logger.info("Added active_background column to user_profiles table")
+                
+                # Обновляем активный фон
+                await db.execute(
+                    'UPDATE user_profiles SET active_background = ? WHERE user_id = ?',
+                    (background_key, user_id)
+                )
+                await db.commit()
+                logger.info(f"User {user_id} active background set to '{background_key}' in main database.")
+                
+            except Exception as e:
+                logger.error(f"Error setting active background in main database: {e}")
+
 async def set_user_active_background(user_id: int, background_key: str) -> None:
     """Устанавливает активный фон для пользователя."""
     async with aiosqlite.connect(DB_FILE) as db:
-        await db.execute('UPDATE user_profiles SET active_background = ? WHERE user_id = ?', (background_key, user_id))
-        await db.commit()
-    logger.info(f"User {user_id} active background set to '{background_key}'.")
-
+        try:
+            # Сначала проверяем, существует ли таблица user_profiles
+            cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
+            table_exists = await cursor.fetchone()
+            
+            if not table_exists:
+                # Создаем таблицу если её нет
+                await db.execute('''
+                    CREATE TABLE user_profiles (
+                        user_id INTEGER PRIMARY KEY,
+                        hp INTEGER DEFAULT 100,
+                        level INTEGER DEFAULT 1,
+                        exp INTEGER DEFAULT 0,
+                        lumcoins INTEGER DEFAULT 0,
+                        daily_messages INTEGER DEFAULT 0,
+                        total_messages INTEGER DEFAULT 0,
+                        flames INTEGER DEFAULT 0,
+                        active_background TEXT DEFAULT 'default',
+                        FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+                    )
+                ''')
+                await db.commit()
+                logger.info("Created user_profiles table in main database")
+            
+            # Проверяем, есть ли колонка active_background в таблице user_profiles
+            cursor = await db.execute("PRAGMA table_info(user_profiles)")
+            columns = await cursor.fetchall()
+            has_active_background = any('active_background' in column for column in columns)
+            
+            if not has_active_background:
+                # Добавляем колонку если её нет
+                await db.execute('ALTER TABLE user_profiles ADD COLUMN active_background TEXT DEFAULT "default"')
+                await db.commit()
+                logger.info("Added active_background column to user_profiles table")
+            
+            # Обновляем активный фон
+            await db.execute(
+                'UPDATE user_profiles SET active_background = ? WHERE user_id = ?',
+                (background_key, user_id)
+            )
+            await db.commit()
+            logger.info(f"User {user_id} active background set to '{background_key}' in main database.")
+            
+        except Exception as e:
+            logger.error(f"Error setting active background in main database: {e}")

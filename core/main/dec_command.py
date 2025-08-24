@@ -2,6 +2,8 @@ from core.main.ez_main import *
 from core.main.ollama import *
 from main import *
 
+MAX_RATING_OPPORTUNITIES = 5
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message, profile_manager: ProfileManager):
     user = message.from_user
@@ -127,7 +129,12 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
     Взаимодействует с Ollama, управляет режимами и стикерами, логирует историю.
     """
     user_id = message.from_user.id
-    
+
+    try:
+        await profile_manager.record_message(message.from_user)
+    except Exception as e:
+        logger.error(f"Error recording message for user {message.from_user.id}: {e}")
+
     # Убеждаемся, что пользователь есть в базе данных
     await db.ensure_user_exists(user_id, message.from_user.username, message.from_user.first_name)
     

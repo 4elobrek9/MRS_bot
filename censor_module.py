@@ -141,13 +141,6 @@ logger.debug("censor_router: Настроен фильтр для работы �
 
 @censor_router.message(F.text)
 async def censor_message_handler(message: types.Message, bot: Bot):
-    """
-    Обработчик входящих текстовых сообщений.
-    Проверяет сообщение на наличие "плохих" слов. Если найдены,
-    удаляет оригинальное сообщение и отправляет цензурированную версию.
-    Если сообщение является командой (начинается с '/' или является известной не-слеш командой),
-    оно пропускается.
-    """
     logger.debug(f"censor_message_handler: Получено сообщение: '{message.text}' от пользователя {message.from_user.id} в чате {message.chat.id}.")
     
     # Проверяем, что сообщение не от самого бота, чтобы избежать цикла
@@ -158,6 +151,13 @@ async def censor_message_handler(message: types.Message, bot: Bot):
     user = message.from_user
     original_text = message.text
     original_text_lower = original_text.lower()
+
+    try:
+        if GLOBAL_PROFILE_MANAGER:
+            await GLOBAL_PROFILE_MANAGER.record_message(message.from_user)
+    except Exception as e:
+        logger.error(f"Error recording message for user {message.from_user.id}: {e}")
+
 
     # Пропускаем сообщения, начинающиеся с "/" (команды)
     if original_text.startswith('/'):
