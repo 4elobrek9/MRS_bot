@@ -16,9 +16,10 @@ from aiogram import types, Bot
 
 from core.group.stat.config import ProfileConfig
 from core.group.stat.shop_config import ShopConfig
-from database import get_user_rp_stats, add_item_to_inventory, get_user_inventory, set_user_active_background
-
+from database import get_user_rp_stats, add_item_to_inventory, get_user_inventory
 logger = logging.getLogger(__name__)
+
+
 
 class ProfileManager:
     def __init__(self):
@@ -105,26 +106,31 @@ class ProfileManager:
             return None
         
         user_id = user.id
-        cursor = await self._conn.execute('''
-            SELECT 
-                up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, 
-                up.total_messages, up.flames, up.last_work_time, up.active_background, up.last_activity_date,
-                u.username, u.first_name, u.last_name
-            FROM user_profiles up
-            JOIN users u ON up.user_id = u.user_id
-            WHERE up.user_id = ?
-        ''', (user_id,))
-        
-        row = await cursor.fetchone()
-        if row:
-            columns = [
-                'hp', 'level', 'exp', 'lumcoins', 'daily_messages', 
-                'total_messages', 'flames', 'last_work_time', 'active_background', 'last_activity_date',
-                'username', 'first_name', 'last_name'
-            ]
-            profile_data = dict(zip(columns, row))
-            return profile_data
-        return None
+        try:
+            cursor = await self._conn.execute('''
+                SELECT 
+                    up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, 
+                    up.total_messages, up.flames, up.last_work_time, up.active_background,
+                    u.username, u.first_name, u.last_name
+                FROM user_profiles up
+                JOIN users u ON up.user_id = u.user_id
+                WHERE up.user_id = ?
+            ''', (user_id,))
+            
+            row = await cursor.fetchone()
+            if row:
+                columns = [
+                    'hp', 'level', 'exp', 'lumcoins', 'daily_messages', 
+                    'total_messages', 'flames', 'last_work_time', 'active_background',
+                    'username', 'first_name', 'last_name'
+                ]
+                profile_data = dict(zip(columns, row))
+                logger.debug(f"Retrieved profile for user {user_id}, active_background: {profile_data.get('active_background')}")
+                return profile_data
+            return None
+        except Exception as e:
+            logger.error(f"Error getting user profile for {user_id}: {e}")
+            return None
 
     async def record_message(self, user: types.User) -> None:
         if self._conn is None: 
@@ -146,7 +152,7 @@ class ProfileManager:
 
         current_date = datetime.now().date().isoformat()
 
-        if profile_data:
+        if profile_data:    
             level, exp, lumcoins, daily_messages, total_messages, flames, last_activity_date = profile_data
             
             if last_activity_date != current_date:
@@ -213,12 +219,30 @@ class ProfileManager:
         return result[0] if result else 0
 
     async def set_user_background(self, user_id: int, background_key: str) -> None:
+        """Устанавливает активный фон для пользователя."""
         if self._conn is None: 
             raise RuntimeError("DB not connected")
-        await self._conn.execute('UPDATE user_profiles SET active_background = ? WHERE user_id = ?', (background_key, user_id))
-        await self._conn.commit()
-        await add_item_to_inventory(user_id, background_key, 'background')
-        logger.info(f"User {user_id} active background set to '{background_key}'.")
+        
+        # Проверяем, что фон существует в магазине
+        available_backgrounds = self.get_available_backgrounds()
+        if background_key not in available_backgrounds:
+            logger.warning(f"Background '{background_key}' not found in available backgrounds.")
+            return
+        
+        try:
+            # Обновляем активный фон в базе профилей
+            await self._conn.execute(
+                'UPDATE user_profiles SET active_background = ? WHERE user_id = ?',
+                (background_key, user_id)
+            )
+            await self._conn.commit()
+            logger.info(f"User {user_id} active background set to '{background_key}' in profiles database.")
+            
+            # Также обновляем в основной базе данных
+            await set_user_active_background(user_id, background_key)
+            
+        except Exception as e:
+            logger.error(f"Error setting background for user {user_id}: {e}")
 
     async def get_last_work_time(self, user_id: int) -> float:
         if self._conn is None: 
@@ -275,31 +299,32 @@ class ProfileManager:
     async def get_user_backgrounds_inventory(self, user_id: int) -> List[str]:
         return await get_user_inventory(user_id, 'background')
 
-    async def generate_profile_image(self, user: types.User, profile_data: Dict[str, Any], bot: Bot) -> BytesIO:
-        logger.debug(f"Starting profile image generation for user {user.id}.")
+async def generate_profile_image(self, user: types.User, profile_data: Dict[str, Any], bot: Bot) -> BytesIO:
+    logger.debug(f"Starting profile image generation for user {user.id}.")
 
-        active_background_key = profile_data.get('active_background', 'default')
-        background_info = ShopConfig.SHOP_BACKGROUNDS.get(active_background_key)
-        
-        if background_info and background_info.get('url'):
-            background_url = background_info['url']
-            if background_url.startswith("background/"):
-                background_path = Path(__file__).parent.parent.parent / background_url
-                if background_path.exists():
+    active_background_key = profile_data.get('active_background', 'default')
+    logger.debug(f"Active background key: {active_background_key}")
+    
+    background_info = ShopConfig.SHOP_BACKGROUNDS.get(active_background_key)
+    logger.debug(f"Background info: {background_info}")
+    
+    background_image = None
+    
+    if background_info and background_info.get('url'):
+        background_url = background_info['url']
+        if background_url.startswith("background/"):
+            background_path = Path(__file__).parent.parent.parent / background_url
+            logger.debug(f"Background path: {background_path}")
+            if background_path.exists():
+                try:
                     background_image = Image.open(background_path).convert("RGBA")
-                else:
+                    logger.debug(f"Loaded background from local file: {background_path}")
+                except Exception as e:
+                    logger.error(f"Error loading background image {background_path}: {e}")
                     background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
             else:
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(background_url) as resp:
-                            if resp.status == 200:
-                                bg_bytes = await resp.read()
-                                background_image = Image.open(BytesIO(bg_bytes)).convert("RGBA")
-                            else:
-                                background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
-                except Exception:
-                    background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
+                logger.warning(f"Background file not found: {background_path}")
+                background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
         else:
             background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
 
@@ -437,3 +462,24 @@ class ProfileManager:
         img_byte_arr.seek(0)
         logger.debug(f"Profile image generated for user {user.id}.")
         return img_byte_arr
+    
+    async def sync_profiles_with_main_db(self):
+        if self._conn is None:
+            return
+            
+        try:
+            cursor = await self._conn.execute('SELECT user_id, active_background FROM user_profiles')
+            profiles = await cursor.fetchall()
+            
+            for user_id, active_background in profiles:
+                await set_user_active_background(user_id, active_background)
+                
+            logger.info(f"Synced {len(profiles)} profiles with main database")
+        except Exception as e:
+            logger.error(f"Error syncing profiles with main database: {e}")
+
+async def set_user_active_background(user_id: int, background_key: str) -> None:
+    """Устанавливает активный фон для пользователя в основной базе данных."""
+    # Импортируем здесь, чтобы избежать циклического импорта
+    from database import set_user_active_background as set_bg_main_db
+    await set_bg_main_db(user_id, background_key)

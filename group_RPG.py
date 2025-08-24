@@ -6,7 +6,6 @@ import logging
 
 from core.group.stat.manager import ProfileManager
 from core.group.stat.shop_config import ShopConfig # Для доступа к информации о фонах
-from database import set_user_active_background # Для установки активного фона
 from aiogram.enums import ParseMode  # ← Добавьте эту строку
 
 logger = logging.getLogger(__name__)

@@ -111,6 +111,18 @@ async def main():
     dp.include_router(private_router)
     logger.info("main: private_router успешно интегрирован в главный диспетчер.")
 
+    profile_manager = ProfileManager()
+    try:
+        await profile_manager.connect()
+        logger.info("main: ProfileManager подключен.")
+        
+        # Синхронизируем профили с основной базой данных
+        await profile_manager.sync_profiles_with_main_db()
+        
+    except Exception as e:
+        logger.critical(f"main: Не удалось подключить ProfileManager: {e}. Бот не будет запущен.", exc_info=True)
+        exit(1)
+    
     logger.info("main: Запуск фоновых задач.")
     jokes_bg_task = asyncio.create_task(jokes_task(bot))
     rp_recovery_bg_task = asyncio.create_task(periodic_hp_recovery_task(bot, profile_manager, db))
