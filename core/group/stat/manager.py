@@ -154,11 +154,6 @@ class ProfileManager:
         )
         profile_data = await cursor.fetchone()
 
-<<<<<<< HEAD
-=======
-        current_date = datetime.now().date().isoformat()
-
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
         if profile_data:    
             level, exp, lumcoins, daily_messages, total_messages, flames, last_activity_date = profile_data
             
@@ -240,15 +235,9 @@ class ProfileManager:
         if self._conn is None: 
             raise RuntimeError("DB not connected")
         
-<<<<<<< HEAD
         # Проверяем, что фон существует в магазине или это фон по умолчанию
         available_backgrounds = self.get_available_backgrounds()
         if background_key != 'default' and background_key not in available_backgrounds:
-=======
-        # Проверяем, что фон существует в магазине
-        available_backgrounds = self.get_available_backgrounds()
-        if background_key not in available_backgrounds:
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
             logger.warning(f"Background '{background_key}' not found in available backgrounds.")
             return
         
@@ -322,19 +311,18 @@ class ProfileManager:
     async def get_user_backgrounds_inventory(self, user_id: int) -> List[str]:
         return await get_user_inventory(user_id, 'background')
 
-async def generate_profile_image(self, user: types.User, profile_data: Dict[str, Any], bot: Bot) -> BytesIO:
-    logger.debug(f"Starting profile image generation for user {user.id}.")
+    async def generate_profile_image(self, user: types.User, profile_data: Dict[str, Any], bot: Bot) -> BytesIO:
+        logger.debug(f"Starting profile image generation for user {user.id}.")
 
-<<<<<<< HEAD
         active_background_key = profile_data.get('active_background', 'default')
         logger.debug(f"Active background key: {active_background_key}")
-        
+            
         background_info = ShopConfig.SHOP_BACKGROUNDS.get(active_background_key)
         logger.debug(f"Background info: {background_info}")
-        
+            
         background_image = None
-        
-# Замените этот блок кода:
+            
+    # Замените этот блок кода:
         if background_info and background_info.get('url'):
             background_url = background_info['url']
             try:
@@ -361,33 +349,6 @@ async def generate_profile_image(self, user: types.User, profile_data: Dict[str,
             except Exception as e:
                 logger.error(f"Error loading background image: {e}")
                 background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
-=======
-    active_background_key = profile_data.get('active_background', 'default')
-    logger.debug(f"Active background key: {active_background_key}")
-    
-    background_info = ShopConfig.SHOP_BACKGROUNDS.get(active_background_key)
-    logger.debug(f"Background info: {background_info}")
-    
-    background_image = None
-    
-    if background_info and background_info.get('url'):
-        background_url = background_info['url']
-        if background_url.startswith("background/"):
-            background_path = Path(__file__).parent.parent.parent / background_url
-            logger.debug(f"Background path: {background_path}")
-            if background_path.exists():
-                try:
-                    background_image = Image.open(background_path).convert("RGBA")
-                    logger.debug(f"Loaded background from local file: {background_path}")
-                except Exception as e:
-                    logger.error(f"Error loading background image {background_path}: {e}")
-                    background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
-            else:
-                logger.warning(f"Background file not found: {background_path}")
-                background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
-        else:
-            background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
 
             background_image = background_image.resize((ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT))
             card = Image.new("RGBA", (ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT), (0, 0, 0, 0))
@@ -413,105 +374,7 @@ async def generate_profile_image(self, user: types.User, profile_data: Dict[str,
             font_level_exp = get_font(18)
             font_hp_lum = get_font(22)
 
-<<<<<<< HEAD
             avatar_image = None
-=======
-        avatar_image = None
-        
-        try:
-            user_profile_photos = await bot.get_user_profile_photos(user.id, limit=1)
-            if user_profile_photos.total_count > 0:
-                photo = user_profile_photos.photos[0][-1]
-                file = await bot.get_file(photo.file_id)
-                avatar_bytes = await bot.download_file(file.file_path)
-                avatar_image = Image.open(BytesIO(avatar_bytes.getvalue())).convert("RGBA")
-            else:
-                raise Exception("No profile photo")
-        except Exception:
-            default_avatar_path = Path(__file__).parent.parent.parent / "background" / "default_avatar.png"
-            if default_avatar_path.exists():
-                avatar_image = Image.open(default_avatar_path).convert("RGBA")
-            else:
-                avatar_image = Image.new("RGBA", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), (200, 200, 200, 255))
-                draw_avatar = ImageDraw.Draw(avatar_image)
-                try:
-                    font = ImageFont.truetype(ProfileConfig.FONT_PATH, 40)
-                except:
-                    font = ImageFont.load_default()
-                initial = user.first_name[0].upper() if user.first_name else "U"
-                draw_avatar.text((ProfileConfig.AVATAR_SIZE//2, ProfileConfig.AVATAR_SIZE//2), 
-                               initial, fill=(0, 0, 0, 255), font=font, anchor="mm")
-
-        avatar_image = avatar_image.resize((ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE))
-        avatar_mask = Image.new("L", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), 0)
-        draw_avatar_mask = ImageDraw.Draw(avatar_mask)
-        draw_avatar_mask.ellipse([(0, 0), (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE)], fill=255)
-        card.paste(avatar_image, ProfileConfig.AVATAR_OFFSET, avatar_mask)
-
-        username_text = f"@{user.username}" if user.username else user.first_name
-        draw.text((ProfileConfig.TEXT_BLOCK_LEFT_X, ProfileConfig.USERNAME_Y), username_text,
-                  fill=ProfileConfig.TEXT_COLOR, font=font_username,
-                  stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
-
-        hp_current = profile_data.get('hp', 100)
-        hp_max = ProfileConfig.MAX_HP
-        lumcoins = profile_data.get('lumcoins', 0)
-
-        hp_text = f"HP: {hp_current}/{hp_max}"
-        hp_x = ProfileConfig.AVATAR_X + ProfileConfig.AVATAR_SIZE + ProfileConfig.MARGIN // 2
-        hp_y = ProfileConfig.USERNAME_Y + 40
-        draw.text((hp_x, hp_y), hp_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp_lum,
-                  stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
-
-        lumcoins_text = f"LUM: {lumcoins}"
-        lumcoins_y = hp_y + 30
-        draw.text((hp_x, lumcoins_y), lumcoins_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp_lum,
-                  stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
-
-        level = profile_data.get('level', 1)
-        exp = profile_data.get('exp', 0)
-        exp_needed_for_next_level = 100
-        exp_percentage = exp / exp_needed_for_next_level if exp_needed_for_next_level > 0 else 0
-
-        exp_bar_x = ProfileConfig.MARGIN
-        exp_bar_y = ProfileConfig.CARD_HEIGHT - ProfileConfig.MARGIN - ProfileConfig.EXP_BAR_HEIGHT
-        exp_bar_width = ProfileConfig.CARD_WIDTH - (ProfileConfig.MARGIN * 2) - 80
-        exp_bar_height = ProfileConfig.EXP_BAR_HEIGHT
-
-        draw.rounded_rectangle(
-            [(exp_bar_x, exp_bar_y), (exp_bar_x + exp_bar_width, exp_bar_y + exp_bar_height)],
-            radius=exp_bar_height // 2,
-            fill=(100, 100, 100, ProfileConfig.EXP_BAR_ALPHA)
-        )
-
-        for i in range(int(exp_bar_width * exp_percentage)):
-            r = int(ProfileConfig.EXP_GRADIENT_START[0] + (ProfileConfig.EXP_GRADIENT_END[0] - ProfileConfig.EXP_GRADIENT_START[0]) * (i / (exp_bar_width * exp_percentage + 1e-6)))
-            g = int(ProfileConfig.EXP_GRADIENT_START[1] + (ProfileConfig.EXP_GRADIENT_END[1] - ProfileConfig.EXP_GRADIENT_START[1]) * (i / (exp_bar_width * exp_percentage + 1e-6)))
-            b = int(ProfileConfig.EXP_GRADIENT_START[2] + (ProfileConfig.EXP_GRADIENT_END[2] - ProfileConfig.EXP_GRADIENT_START[2]) * (i / (exp_bar_width * exp_percentage + 1e-6)))
-            draw.line([(exp_bar_x + i, exp_bar_y), (exp_bar_x + i, exp_bar_y + exp_bar_height)], fill=(r, g, b, ProfileConfig.EXP_BAR_ALPHA))
-
-        exp_text = f"Уровень: {level} | EXP: {exp}/{exp_needed_for_next_level}"
-        bbox = draw.textbbox((0, 0), exp_text, font=font_level_exp)
-        text_width = bbox[2] - bbox[0]
-        exp_text_x = exp_bar_x + (exp_bar_width - text_width) // 2
-        exp_text_y = exp_bar_y + (exp_bar_height - (bbox[3] - bbox[1])) // 2
-        draw.text((exp_text_x, exp_text_y), exp_text, fill=ProfileConfig.TEXT_COLOR, font=font_level_exp,
-                  stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
-
-        stats = [
-            ("Сообщения (день):", profile_data.get('daily_messages', 0)),
-            ("Сообщения (всего):", profile_data.get('total_messages', 0)),
-            ("Пламя:", profile_data.get('flames', 0))
-        ]
-
-        current_y = ProfileConfig.RIGHT_COLUMN_TOP_Y
-        for label, value in stats:
-            bbox = draw.textbbox((0, 0), label, font=font_stats_label)
-            label_text_width = bbox[2] - bbox[0]
-            draw.text((ProfileConfig.RIGHT_COLUMN_X - label_text_width, current_y), label,
-                      fill=ProfileConfig.TEXT_COLOR, font=font_stats_label,
-                      stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
             
             try:
                 user_profile_photos = await bot.get_user_profile_photos(user.id, limit=1)
@@ -537,7 +400,6 @@ async def generate_profile_image(self, user: types.User, profile_data: Dict[str,
                     draw_avatar.text((ProfileConfig.AVATAR_SIZE//2, ProfileConfig.AVATAR_SIZE//2), 
                                 initial, fill=(0, 0, 0, 255), font=font, anchor="mm")
 
-<<<<<<< HEAD
             avatar_image = avatar_image.resize((ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE))
             avatar_mask = Image.new("L", (ProfileConfig.AVATAR_SIZE, ProfileConfig.AVATAR_SIZE), 0)
             draw_avatar_mask = ImageDraw.Draw(avatar_mask)
@@ -627,34 +489,7 @@ async def generate_profile_image(self, user: types.User, profile_data: Dict[str,
             return img_byte_arr
     
     async def sync_profiles_with_main_db(self):
-            if self._conn is None:
-                return
-                
-            try:
-                cursor = await self._conn.execute('SELECT user_id, active_background FROM user_profiles')
-                profiles = await cursor.fetchall()
-                
-                for user_id, active_background in profiles:
-                    await set_user_active_background(user_id, active_background)
-                    
-                logger.info(f"Synced {len(profiles)} profiles with main database")
-            except Exception as e:
-                logger.error(f"Error syncing profiles with main database: {e}")
-
-# Оставьте эту функцию вне класса
-async def set_user_active_background(user_id: int, background_key: str) -> None:
-    """Устанавливает активный фон для пользователя в основной базе данных."""
-    from database import set_user_active_background as set_bg_main_db
-    await set_bg_main_db(user_id, background_key)
-
-=======
-        img_byte_arr = BytesIO()
-        card.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
-        logger.debug(f"Profile image generated for user {user.id}.")
-        return img_byte_arr
-    
-    async def sync_profiles_with_main_db(self):
+        """Синхронизирует активные фоны профилей с основной базой данных"""
         if self._conn is None:
             return
             
@@ -668,7 +503,12 @@ async def set_user_active_background(user_id: int, background_key: str) -> None:
             logger.info(f"Synced {len(profiles)} profiles with main database")
         except Exception as e:
             logger.error(f"Error syncing profiles with main database: {e}")
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
+# Оставьте эту функцию вне класса
+async def set_user_active_background(user_id: int, background_key: str) -> None:
+    """Устанавливает активный фон для пользователя в основной базе данных."""
+    from database import set_user_active_background as set_bg_main_db
+    await set_bg_main_db(user_id, background_key)
+
 
 async def set_user_active_background(user_id: int, background_key: str) -> None:
     """Устанавливает активный фон для пользователя в основной базе данных."""

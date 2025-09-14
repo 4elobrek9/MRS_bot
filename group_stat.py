@@ -184,12 +184,8 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
             user_profile = await profile_manager.get_user_profile(callback.from_user)
             if user_profile:
                 image_bytes = await profile_manager.generate_profile_image(callback.from_user, user_profile, bot)
-<<<<<<< HEAD
             from core.main.ez_main import bot
             await bot.send_photo(callback.message.chat.id, BufferedInputFile(image_bytes.getvalue(), filename="profile_updated.png"))
-=======
-                await callback.message.answer_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile_updated.png"))
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
         except Exception as e:
             logger.error(f"Error showing updated profile: {e}")
     else:

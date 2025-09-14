@@ -119,12 +119,7 @@ async def main():
         logger.info("main: ProfileManager подключен.")
         
         # Синхронизируем профили с основной базой данных
-<<<<<<< HEAD
-        # from core.group.stat.manager import sync_profiles_with_main_db
-        # await sync_profiles_with_main_db()
-=======
         await profile_manager.sync_profiles_with_main_db()
->>>>>>> 3df743f25212aa072ac9ed01370d84c12d012dc4
         
     except Exception as e:
         logger.critical(f"main: Не удалось подключить ProfileManager: {e}. Бот не будет запущен.", exc_info=True)
