@@ -9,6 +9,7 @@ from aiogram import Router, types, F, Bot
 from aiogram.exceptions import TelegramAPIError
 from aiogram.utils.markdown import hbold
 from aiogram.enums import ParseMode, ChatType
+from aiogram.fsm.context import FSMContext
 
 # Настройка логгера для модуля цензуры
 logger = logging.getLogger(__name__)
@@ -140,13 +141,19 @@ logger.debug("censor_router: Настроен фильтр для работы �
 
 
 @censor_router.message(F.text)
-async def censor_message_handler(message: types.Message, bot: Bot):
+async def censor_message_handler(message: types.Message, bot: Bot, state: FSMContext):
     logger.debug(f"censor_message_handler: Получено сообщение: '{message.text}' от пользователя {message.from_user.id} в чате {message.chat.id}.")
     
     # Проверяем, что сообщение не от самого бота, чтобы избежать цикла
     if not message.from_user or message.from_user.id == bot.id:
         logger.debug("censor_message_handler: Сообщение от бота или без пользователя. Пропускаем.")
         return
+
+    # Проверяем, находится ли пользователь в состоянии FSM (например, ожидает URL для кастомного фона)
+    current_state = await state.get_state()
+    if current_state:
+        logger.debug(f"censor_message_handler: Пользователь {message.from_user.id} находится в состоянии FSM ({current_state}). Пропускаем цензуру.")
+        return  # Пропускаем цензуру для сообщений в состоянии FSM
 
     user = message.from_user
     original_text = message.text

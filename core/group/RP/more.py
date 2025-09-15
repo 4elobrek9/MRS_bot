@@ -71,39 +71,50 @@ async def _parse_rp_message(message: types.Message, bot: Bot) -> Tuple[Optional[
 
     # Если действие найдено, ищем цель и дополнительный текст
     if action_name:
-        # 2. Поиск упоминания (@username)
-        # Ищем сущности (entities) в сообщении
+        # 2. Поиск упоминания (@username) через сущности сообщения
         if message.entities:
             for entity in message.entities:
                 if entity.type == MessageEntityType.MENTION:
                     # Извлекаем username из текста упоминания
                     mentioned_username = text[entity.offset : entity.offset + entity.length].lstrip('@')
-                    # Пытаемся получить пользователя по username
                     try:
+                        # Пытаемся получить user_id через get_chat_member
                         chat_member = await bot.get_chat_member(message.chat.id, mentioned_username)
                         target_user = chat_member.user
                         # Удаляем упоминание из оставшегося текста
-                        remaining_text = (remaining_text[:entity.offset] + remaining_text[entity.offset + entity.length:]).strip()
-                        break # Нашли первое упоминание, используем его как цель
-                    except TelegramAPIError as e:
-                        logger.warning(f"Could not get chat member for mentioned username '{mentioned_username}': {e}")
+                        remaining_text = remaining_text.replace(f"@{mentioned_username}", "").strip()
+                        break
+                    except TelegramAPIError:
                         continue
                 elif entity.type == MessageEntityType.TEXT_MENTION:
-                    # Это упоминание пользователя по ID, когда у него нет username (например, если он скрыл его)
+                    # Упоминание пользователя по ID
                     target_user = entity.user
                     # Удаляем упоминание из оставшегося текста
-                    remaining_text = (remaining_text[:entity.offset] + remaining_text[entity.offset + entity.length:]).strip()
-                    break # Нашли первое упоминание, используем его как цель
+                    mention_text = text[entity.offset : entity.offset + entity.length]
+                    remaining_text = remaining_text.replace(mention_text, "").strip()
+                    break
 
-        # 3. Если нет упоминания, но есть ответ на сообщение
+        # 3. Если не нашли через сущности, ищем @username вручную в тексте
+        if not target_user:
+            # Ищем слова начинающиеся с @
+            words = remaining_text.split()
+            for word in words:
+                if word.startswith('@'):
+                    username = word[1:]  # Убираем @
+                    try:
+                        chat_member = await bot.get_chat_member(message.chat.id, username)
+                        target_user = chat_member.user
+                        remaining_text = remaining_text.replace(word, "").strip()
+                        break
+                    except TelegramAPIError:
+                        continue
+
+        # 4. Если нет упоминания, но есть ответ на сообщение
         if not target_user and message.reply_to_message:
             target_user = message.reply_to_message.from_user
-            logger.debug(f"Target user set from reply_to_message: {target_user.id}")
 
-        # Оставшийся текст после команды и упоминания (если было) - это custom_text
-        custom_text = remaining_text.strip()
-        if not custom_text:
-            custom_text = None
+        # Оставшийся текст после команды и упоминания - это custom_text
+        custom_text = remaining_text.strip() or None
 
     return action_name, target_user, custom_text
 

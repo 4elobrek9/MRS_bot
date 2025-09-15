@@ -31,15 +31,26 @@ async def show_inventory(message: types.Message, profile_manager: ProfileManager
     text += "🖼️ **Фоны:**\n"
     if user_backgrounds:
         for bg_key in user_backgrounds:
-            bg_info = ShopConfig.SHOP_BACKGROUNDS.get(bg_key)
-            bg_name = bg_info['name'] if bg_info else bg_key
-            status = " ✅ (Активно)" if bg_key == active_background_key else ""
-            
-            # Кнопка для активации фона
-            builder.row(InlineKeyboardButton(
-                text=f"🎨 {bg_name}{status}", 
-                callback_data=f"activate_bg:{bg_key}"
-            ))
+            # Обработка кастомных фонов
+            if bg_key.startswith("custom:"):
+                bg_name = "Кастомный фон"
+                status = " ✅ (Активно)" if bg_key == active_background_key else ""
+                
+                # Кнопка для активации фона
+                builder.row(InlineKeyboardButton(
+                    text=f"🎨 {bg_name}{status}", 
+                    callback_data=f"activate_bg:{bg_key}"
+                ))
+            else:
+                bg_info = ShopConfig.SHOP_BACKGROUNDS.get(bg_key)
+                bg_name = bg_info['name'] if bg_info else bg_key
+                status = " ✅ (Активно)" if bg_key == active_background_key else ""
+                
+                # Кнопка для активации фона
+                builder.row(InlineKeyboardButton(
+                    text=f"🎨 {bg_name}{status}", 
+                    callback_data=f"activate_bg:{bg_key}"
+                ))
     else:
         text += "У вас пока нет фонов. Загляните в /магазин!\n"
     

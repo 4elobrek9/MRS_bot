@@ -317,6 +317,42 @@ class ProfileManager:
         active_background_key = profile_data.get('active_background', 'default')
         logger.debug(f"Active background key: {active_background_key}")
             
+        background_image = None
+            
+        # Обработка кастомного фона
+        if active_background_key.startswith("custom:"):
+            user_id = user.id
+            async with aiosqlite.connect('profiles.db') as conn:
+                cursor = await conn.execute(
+                    'SELECT background_url FROM custom_backgrounds WHERE user_id = ?',
+                    (user_id,)
+                )
+                custom_bg = await cursor.fetchone()
+                
+                if custom_bg:
+                    custom_bg_url = custom_bg[0]
+                    try:
+                        async with aiohttp.ClientSession() as session:
+                            async with session.get(custom_bg_url) as response:
+                                if response.status == 200:
+                                    image_data = await response.read()
+                                    background_image = Image.open(BytesIO(image_data)).convert("RGBA")
+                                    background_image = background_image.resize((ProfileConfig.CARD_WIDTH, ProfileConfig.CARD_HEIGHT))
+                                    logger.debug(f"Loaded custom background from URL: {custom_bg_url}")
+                    except Exception as e:
+                        logger.error(f"Error loading custom background: {e}")
+                        # Если не удалось загрузить, используем стандартный фон
+                        background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
+                else:
+                    background_image = Image.open(ProfileConfig.DEFAULT_LOCAL_BG_PATH).convert("RGBA")
+        else:
+            # Обычная обработка фонов из ShopConfig
+            background_info = ShopConfig.SHOP_BACKGROUNDS.get(active_background_key)
+            logger.debug(f"Background info: {background_info}")
+            
+        active_background_key = profile_data.get('active_background', 'default')
+        logger.debug(f"Active background key: {active_background_key}")
+            
         background_info = ShopConfig.SHOP_BACKGROUNDS.get(active_background_key)
         logger.debug(f"Background info: {background_info}")
             

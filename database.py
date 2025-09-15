@@ -5,14 +5,52 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import time
+import os
 
 logger = logging.getLogger(__name__)
 
 DB_FILE = Path("data") / "bot_database.db"
 DB_FILE.parent.mkdir(exist_ok=True)
+DB_PATH = str(DB_FILE)
+
+async def create_promo_table():
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS used_promocodes (
+                user_id INTEGER,
+                promocode TEXT,
+                used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, promocode)
+            )
+        ''')
+        await db.commit()
+
+async def check_promo_used(user_id: int, promocode: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT 1 FROM used_promocodes WHERE user_id = ? AND promocode = ?",
+            (user_id, promocode.upper())
+        )
+        return await cursor.fetchone() is not None
+
+async def mark_promo_used(user_id: int, promocode: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO used_promocodes (user_id, promocode) VALUES (?, ?)",
+            (user_id, promocode.upper())
+        )
+        await db.commit()
+
+async def get_promo_use_count(promocode: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM used_promocodes WHERE promocode = ?",
+            (promocode.upper(),)
+        )
+        result = await cursor.fetchone()
+        return result[0] if result else 0
 
 async def check_user_owns_item(user_id: int, item_key: str, item_type: str) -> bool:
-    """Проверяет, есть ли у пользователя предмет в инвентаре"""
     async with aiosqlite.connect(DB_FILE) as db:
         cursor = await db.execute(
             'SELECT 1 FROM user_inventory WHERE user_id = ? AND item_key = ? AND item_type = ?',
@@ -44,7 +82,7 @@ async def initialize_database() -> None:
                 user_id INTEGER NOT NULL,
                 timestamp REAL NOT NULL,
                 mode TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),\
+                role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
                 content TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
@@ -95,12 +133,11 @@ async def initialize_database() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
-        # Новая таблица для инвентаря пользователя
         await db.execute('''
             CREATE TABLE IF NOT EXISTS user_inventory (
                 user_id INTEGER NOT NULL,
                 item_key TEXT NOT NULL,
-                item_type TEXT NOT NULL, -- Например, 'background'
+                item_type TEXT NOT NULL,
                 PRIMARY KEY (user_id, item_key),
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
@@ -144,7 +181,6 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
 
 async def get_user_profile_info(user_id: int) -> Optional[Dict[str, Any]]:
     async with aiosqlite.connect(DB_FILE) as db:
-        # Обновленный запрос для получения active_background из user_profiles
         cursor = await db.execute('''
             SELECT u.user_id, u.username, u.first_name, u.last_active_ts,
                    up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, up.total_messages, up.flames
@@ -167,7 +203,6 @@ async def get_user_profile_info(user_id: int) -> Optional[Dict[str, Any]]:
                 "daily_messages": row[8],
                 "total_messages": row[9],
                 "flames": row[10],
-                # УДАЛИТЬ ЭТУ СТРОКУ: "active_background": row[11]
             }
         return None
 
@@ -234,7 +269,7 @@ async def get_ollama_dialog_history(user_id: int, limit_turns: int = 5) -> List[
         elif entry["role"] == "assistant" and user_message_buffer is not None:
             ollama_history.append({"user": user_message_buffer, "assistant": entry["content"]})
             user_message_buffer = None
-        elif entry["role"] == "assistant" and user_message_buffer is None:
+        elif entry["role"] == "assistant" and user_message_buffer is not None:
             logger.warning(f"Orphan assistant message in history for user {user_id}, skipping for Ollama.")
 
     return ollama_history
@@ -374,7 +409,6 @@ async def get_users_for_hp_recovery(current_timestamp: float, min_hp_level_inclu
             return [(row[0], row[1]) for row in rows]
 
 async def add_item_to_inventory(user_id: int, item_key: str, item_type: str) -> None:
-    """Добавляет предмет в инвентарь пользователя."""
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
             INSERT OR IGNORE INTO user_inventory (user_id, item_key, item_type)
@@ -384,7 +418,6 @@ async def add_item_to_inventory(user_id: int, item_key: str, item_type: str) -> 
     logger.info(f"Item '{item_key}' (type: {item_type}) added to inventory for user {user_id}.")
 
 async def get_user_inventory(user_id: int, item_type: str = 'background') -> List[str]:
-    """Получает список ключей предметов определенного типа из инвентаря пользователя."""
     async with aiosqlite.connect(DB_FILE) as db:
         cursor = await db.execute('''
             SELECT item_key FROM user_inventory WHERE user_id = ? AND item_type = ?
@@ -392,50 +425,13 @@ async def get_user_inventory(user_id: int, item_type: str = 'background') -> Lis
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
 
-    async def set_user_active_background(user_id: int, background_key: str) -> None:
-        """Устанавливает активный фон для пользователя в основной базе данных."""
-        async with aiosqlite.connect(DB_FILE) as db:
-            try:
-                # Сначала проверяем, существует ли таблица user_profiles
-                cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
-                table_exists = await cursor.fetchone()
-                
-                if not table_exists:
-                    logger.error("Table user_profiles does not exist in main database")
-                    return
-                    
-                # Проверяем, есть ли колонка active_background в таблице user_profiles
-                cursor = await db.execute("PRAGMA table_info(user_profiles)")
-                columns = await cursor.fetchall()
-                has_active_background = any('active_background' in column for column in columns)
-                
-                if not has_active_background:
-                    # Добавляем колонку если её нет
-                    await db.execute('ALTER TABLE user_profiles ADD COLUMN active_background TEXT DEFAULT "default"')
-                    await db.commit()
-                    logger.info("Added active_background column to user_profiles table")
-                
-                # Обновляем активный фон
-                await db.execute(
-                    'UPDATE user_profiles SET active_background = ? WHERE user_id = ?',
-                    (background_key, user_id)
-                )
-                await db.commit()
-                logger.info(f"User {user_id} active background set to '{background_key}' in main database.")
-                
-            except Exception as e:
-                logger.error(f"Error setting active background in main database: {e}")
-
 async def set_user_active_background(user_id: int, background_key: str) -> None:
-    """Устанавливает активный фон для пользователя."""
     async with aiosqlite.connect(DB_FILE) as db:
         try:
-            # Сначала проверяем, существует ли таблица user_profiles
             cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
             table_exists = await cursor.fetchone()
             
             if not table_exists:
-                # Создаем таблицу если её нет
                 await db.execute('''
                     CREATE TABLE user_profiles (
                         user_id INTEGER PRIMARY KEY,
@@ -453,18 +449,15 @@ async def set_user_active_background(user_id: int, background_key: str) -> None:
                 await db.commit()
                 logger.info("Created user_profiles table in main database")
             
-            # Проверяем, есть ли колонка active_background в таблице user_profiles
             cursor = await db.execute("PRAGMA table_info(user_profiles)")
             columns = await cursor.fetchall()
             has_active_background = any('active_background' in column for column in columns)
             
             if not has_active_background:
-                # Добавляем колонку если её нет
                 await db.execute('ALTER TABLE user_profiles ADD COLUMN active_background TEXT DEFAULT "default"')
                 await db.commit()
                 logger.info("Added active_background column to user_profiles table")
             
-            # Обновляем активный фон
             await db.execute(
                 'UPDATE user_profiles SET active_background = ? WHERE user_id = ?',
                 (background_key, user_id)
