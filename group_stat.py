@@ -21,6 +21,7 @@ from aiogram.utils.markdown import hlink
 from aiogram.enums import ParseMode # Добавлен импорт ParseMode
 from core.group.stat.config import WorkConfig, ProfileConfig
 
+
 import logging
 logger = logging.getLogger(__name__)
 
@@ -343,9 +344,9 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         profile['hp'] = rp_stats.get('hp', 100)
     
     logger.debug(f"Generating profile image for user {message.from_user.id}.")
-    image_bytes = await ProfileManager.generate_profile_image(profile_manager, message.from_user, profile, bot)
-
-
+    
+    # ИСПРАВЛЕНИЕ: используем экземпляр profile_manager, а не класс ProfileManager
+    image_bytes = await profile_manager.generate_profile_image(message.from_user, profile, bot)
     
     if image_bytes is None:
         logger.error(f"Failed to generate profile image for user {message.from_user.id}.")
@@ -354,7 +355,6 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
     
     logger.info(f"Sending profile image to user {message.from_user.id}.")
     await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
-
 
 @stat_router.message(F.text.lower().startswith(("лечить", "/лечить")))
 async def heal_hp(message: types.Message, profile_manager: ProfileManager):
