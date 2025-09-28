@@ -8,9 +8,7 @@ from core.group.promo import setup_promo_handlers, handle_promo_command
 
 dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
 
-from group_stat import show_profile, do_work, show_shop, show_top, manage_censor, show_admins, group_stats
-import censor_module
-from pathlib import Path
+from group_stat import show_profile, do_work, show_shop, show_top, manage_censor, heal_hp
 from core.group.RP.actions import RPActions
 from rp_module_refactored import cmd_check_self_hp, cmd_show_rp_actions_list, handle_rp_action_via_text
 from group_RPG import show_inventory
@@ -61,8 +59,8 @@ async def main():
         "список рп": (cmd_show_rp_actions_list, ["message", "bot"]),
         "команды рп": (cmd_show_rp_actions_list, ["message", "bot"]),
         "цензура": (manage_censor, ["message", "bot"]),
-        "админы": (show_admins, ["message", "bot"]),
-        "стата группы": (group_stats, ["message", "profile_manager", "bot"]),
+        # "админы": (show_admins, ["message", "bot"]),
+        # "стата группы": (group_stats, ["message", "profile_manager", "bot"]),
         "промо": (handle_promo_command, ["message", "bot", "profile_manager"]),
         "promo": (handle_promo_command, ["message", "bot", "profile_manager"]),
     }

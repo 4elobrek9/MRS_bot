@@ -156,6 +156,12 @@ async def initialize_database() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS group_settings (
+                group_id INTEGER PRIMARY KEY,
+                censor_enabled BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        ''')
         await db.commit()
     logger.info("Database initialized successfully.")
 
@@ -467,3 +473,27 @@ async def set_user_active_background(user_id: int, background_key: str) -> None:
             
         except Exception as e:
             logger.error(f"Error setting active background in main database: {e}")
+
+
+async def set_group_censor_setting(group_id: int, enabled: bool):
+    """Устанавливает настройку цензуры для группы"""
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO group_settings (group_id, censor_enabled) VALUES (?, ?)",
+            (group_id, enabled)
+        )
+        await db.commit()
+
+async def get_group_censor_setting(group_id: int) -> bool:
+    """Получает настройку цензуры для группы"""
+    async with aiosqlite.connect(DB_FILE) as db:
+        cursor = await db.execute(
+            "SELECT censor_enabled FROM group_settings WHERE group_id = ?",
+            (group_id,)
+        )
+        result = await cursor.fetchone()
+        return result[0] if result else False
+
+async def get_group_admins(group_id: int) -> List[int]:
+    """Получает список администраторов группы"""
+    return []

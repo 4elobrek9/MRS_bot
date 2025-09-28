@@ -1,94 +1,150 @@
-import os
 import logging
-from typing import Dict, Tuple, Optional
-from aiogram import types, Bot, Router, F
-from aiogram.filters import Command
-from aiogram.exceptions import TelegramAPIError
-from pathlib import Path
-
-from database import check_promo_used, mark_promo_used, get_promo_use_count, DB_PATH
+import os
 import aiosqlite
-from core.group.stat.manager import ProfileManager
+from pathlib import Path
+from typing import Dict, Any, List, Tuple
+from aiogram import types, Bot
 
 logger = logging.getLogger(__name__)
 
-PROMO_FILE = Path("data/PROMO.txt")
+# Импортируем модуль database как db
+import database as db
+from core.group.stat.manager import ProfileManager
 
-def load_promocodes() -> Dict[str, Tuple[int, int]]:
-    promocodes = {}
-    if not PROMO_FILE.exists():
-        logger.warning(f"Promo file {PROMO_FILE} does not exist")
+# Глобальная блокировка для безопасной работы с файлом промокодов
+import asyncio
+promo_file_lock = asyncio.Lock()
+
+# Путь к файлу с промокодами
+PROMO_FILE_PATH = Path("C:/Users/Student2-4/MRS_bot-4/data/PROMO.txt")
+
+async def load_promocodes() -> Dict[str, Tuple[int, int]]:
+    """
+    Загружает промокоды из файла
+    Формат: CODE AMOUNT MAX_USES
+    Возвращает словарь: {code: (amount, max_uses)}
+    """
+    async with promo_file_lock:
+        promocodes = {}
+        
+        if not PROMO_FILE_PATH.exists():
+            logger.warning(f"Promo file {PROMO_FILE_PATH} not found!")
+            return promocodes
+            
+        try:
+            with open(PROMO_FILE_PATH, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):  # Пропускаем пустые строки и комментарии
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            try:
+                                code = parts[0].upper()
+                                amount = int(parts[1])
+                                max_uses = int(parts[2])
+                                promocodes[code] = (amount, max_uses)
+                            except ValueError:
+                                logger.warning(f"Invalid line in promo file: {line}")
+            logger.info(f"Loaded {len(promocodes)} promocodes from file")
+        except Exception as e:
+            logger.error(f"Error reading promo file: {e}")
+            
         return promocodes
+
+async def save_promocodes(promocodes: Dict[str, Tuple[int, int]]) -> None:
+    """
+    Сохраняет промокоды в файл
+    """
+    async with promo_file_lock:
+        try:
+            # Создаем директорию, если она не существует
+            PROMO_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            
+            with open(PROMO_FILE_PATH, 'w', encoding='utf-8') as f:
+                for code, (amount, max_uses) in promocodes.items():
+                    f.write(f"{code} {amount} {max_uses}\n")
+            logger.info(f"Saved {len(promocodes)} promocodes to file")
+        except Exception as e:
+            logger.error(f"Error saving promo file: {e}")
+
+async def update_promocode_use_count(code: str) -> bool:
+    """
+    Обновляет счетчик использований промокода
+    Возвращает True если промокод еще действителен, False если удален
+    """
+    promocodes = await load_promocodes()
+    code_upper = code.upper()
     
-    try:
-        with open(PROMO_FILE, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                
-                parts = line.split()
-                if len(parts) < 3:
-                    continue
-                
-                code = parts[0].upper()
-                try:
-                    max_uses = int(parts[1])
-                    coins = int(parts[2])
-                    promocodes[code] = (max_uses, coins)
-                except ValueError:
-                    logger.warning(f"Invalid promo line: {line}")
-                    continue
-    except Exception as e:
-        logger.error(f"Error loading promocodes: {e}")
+    if code_upper not in promocodes:
+        return False
+        
+    amount, max_uses = promocodes[code_upper]
     
-    return promocodes
+    if max_uses <= 1:
+        # Удаляем промокод, если использований не осталось
+        del promocodes[code_upper]
+        await save_promocodes(promocodes)
+        return True
+    else:
+        # Уменьшаем счетчик использований
+        promocodes[code_upper] = (amount, max_uses - 1)
+        await save_promocodes(promocodes)
+        return True
 
 async def handle_promo_command(message: types.Message, bot: Bot, profile_manager: ProfileManager):
-    args = message.text.split()
-    if len(args) < 2:
-        await message.reply("ℹ️ Использование: /промо <код>")
-        return
-    
-    promocode = args[1].upper()
-    user_id = message.from_user.id
-    
-    promocodes = load_promocodes()
-    
-    if promocode not in promocodes:
-        await message.reply("❌ Неверный промокод.")
-        return
-    
-    if await check_promo_used(user_id, promocode):
-        await message.reply("❌ Вы уже использовали этот промокод.")
-        return
-    
-    max_uses, coins = promocodes[promocode]
-    
-    if max_uses > 0:
-        used_count = await get_promo_use_count(promocode)
-        if used_count >= max_uses:
-            await message.reply("❌ Лимит использований этого промокода исчерпан.")
-            return
-    
+    """Обработчик команды промо"""
     try:
-        profile = await profile_manager.get_user_profile(message.from_user)
-        current_balance = profile.get('balance', 0) if profile else 0
+        parts = message.text.split()
+        if len(parts) < 2:
+            await message.reply("❌ Используйте: промо <код>")
+            return
+            
+        promocode = parts[1]
+        user_id = message.from_user.id
         
-        await profile_manager.update_user_balance(user_id, current_balance + coins)
+        # Проверяем, использовал ли уже пользователь этот промокод
+        if await db.check_promo_used(user_id, promocode):
+            await message.reply("❌ Вы уже использовали этот промокод!")
+            return
         
-        await mark_promo_used(user_id, promocode)
+        # Загружаем промокоды из файла
+        promocodes = await load_promocodes()
+        code_upper = promocode.upper()
         
-        await message.reply(f"✅ Промокод активирован! Вам начислено {coins} монет.")
+        if code_upper not in promocodes:
+            await message.reply("❌ Неверный или неактивный промокод")
+            return
+            
+        amount, max_uses = promocodes[code_upper]
+        
+        # Проверяем, остались ли использования
+        if max_uses <= 0:
+            await message.reply("❌ У этого промокода закончились использования")
+            return
+            
+        # Начисляем награду
+        await profile_manager.update_lumcoins(user_id, amount)
+        
+        # Обновляем счетчик использований промокода
+        still_valid = await update_promocode_use_count(promocode)
+        
+        # Помечаем промокод как использованный для этого пользователя
+        await db.mark_promo_used(user_id, promocode)
+        
+        if still_valid:
+            await message.reply(f"✅ Промокод активирован! Получено {amount} Lumcoins. Осталось использований: {max_uses - 1}")
+        else:
+            await message.reply(f"✅ Промокод активирован! Получено {amount} Lumcoins. Промокод больше недействителен.")
+            
     except Exception as e:
         logger.error(f"Error activating promo code: {e}")
         await message.reply("❌ Произошла ошибка при активации промокода.")
 
-def setup_promo_handlers(main_dp: Router, bot_instance: Bot, profile_manager_instance: ProfileManager):
-    promo_router = Router()
-    
-    @promo_router.message(Command("промо", "promo"))
-    async def promo_command(message: types.Message):
+def setup_promo_handlers(main_dp, bot_instance: Bot, profile_manager_instance: ProfileManager):
+    """Настройка обработчиков промокодов"""
+    # Добавляем обработчик для команды "промо"
+    @main_dp.message(lambda message: message.text and message.text.lower().startswith(("промо", "promo")))
+    async def promo_handler(message: types.Message):
         await handle_promo_command(message, bot_instance, profile_manager_instance)
     
-    main_dp.include_router(promo_router)
+    logger.info("Promo handlers setup complete")

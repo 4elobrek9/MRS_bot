@@ -15,7 +15,6 @@ from urllib.parse import urlparse
 # Добавьте эти импорты если их нет:
 from aiogram.enums import ChatType
 from database import set_group_censor_setting, get_group_censor_setting, get_group_admins
-from aiogram.enums import ChatType
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink
@@ -325,6 +324,7 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
             reply_markup=None
         )
 
+# В файле group_stat.py
 @stat_router.message(F.text.lower().startswith(("профиль", "/профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
@@ -337,14 +337,20 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         await message.reply("❌ Не удалось загрузить профиль!")
         return
     
-    # Синхронизация HP с основной базой данных
     from database import get_user_rp_stats
     rp_stats = await get_user_rp_stats(message.from_user.id)
     if rp_stats:
         profile['hp'] = rp_stats.get('hp', 100)
     
     logger.debug(f"Generating profile image for user {message.from_user.id}.")
-    image_bytes = await profile_manager.generate_profile_image(message.from_user, profile, bot)
+    image_bytes = await ProfileManager.generate_profile_image(profile_manager, message.from_user, profile, bot)
+
+
+    
+    if image_bytes is None:
+        logger.error(f"Failed to generate profile image for user {message.from_user.id}.")
+        await message.reply("❌ Не удалось сгенерировать изображение профиля!")
+        return
     
     logger.info(f"Sending profile image to user {message.from_user.id}.")
     await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
@@ -652,3 +658,36 @@ def setup_stat_handlers(main_dp: Router):
     main_dp.include_router(stat_router)
     logger.info("Registering stat router handlers.")
     logger.info("Stat router included in Dispatcher.")
+
+@stat_router.message(F.text.lower().startswith(("цензура", "/цензура")))
+async def manage_censor(message: types.Message, bot: Bot):
+    """Управление настройками цензуры в группе"""
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # Проверяем права администратора
+    admins = await get_group_admins(chat_id)
+    if user_id not in admins:
+        await message.reply("❌ Эта команда доступна только администраторам группы.")
+        return
+        
+    text = message.text.lower().split()
+    if len(text) < 2:
+        # Показываем текущий статус цензуры
+        is_enabled = await get_group_censor_setting(chat_id)
+        status = "включена" if is_enabled else "выключена"
+        await message.reply(f"🔧 Цензура в этой группе {status}.\n\n"
+                          "Используйте:\n"
+                          "• `цензура вкл` - включить\n"
+                          "• `цензура выкл` - выключить")
+        return
+        
+    action = text[1]
+    if action in ["вкл", "on", "enable"]:
+        await set_group_censor_setting(chat_id, True)
+        await message.reply("✅ Цензура включена. Теперь буду следить за плохими словами!")
+    elif action in ["выкл", "off", "disable"]:
+        await set_group_censor_setting(chat_id, False)
+        await message.reply("❌ Цензура выключена. Могу ругаться сколько угодно!")
+    else:
+        await message.reply("❌ Неизвестная команда. Используйте `цензура вкл` или `цензура выкл`")
