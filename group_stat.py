@@ -40,8 +40,9 @@ __all__ = [
     'show_shop', 
     'show_top',
     'manage_censor',
-    'show_admins', 
-    'group_stats'
+    'heal_hp',
+    'give_lumcoins',
+    'check_transfer_status'
 ]
 
 class CustomBackgroundStates(StatesGroup):
@@ -691,3 +692,283 @@ async def manage_censor(message: types.Message, bot: Bot):
         await message.reply("❌ Цензура выключена. Могу ругаться сколько угодно!")
     else:
         await message.reply("❌ Неизвестная команда. Используйте `цензура вкл` или `цензура выкл`")
+
+
+async def find_user_by_username(username: str):
+    """
+    Ищет пользователя по username в базе данных профилей
+    """
+    try:
+        async with aiosqlite.connect('profiles.db') as conn:
+            cursor = await conn.execute(
+                'SELECT user_id, username, first_name FROM users WHERE username = ? OR username = ?',
+                (username, f"@{username}")
+            )
+            user_data = await cursor.fetchone()
+            
+            if user_data:
+                from aiogram.types import User
+                return User(
+                    id=user_data[0],
+                    username=user_data[1],
+                    first_name=user_data[2],
+                    is_bot=False
+                )
+    except Exception as e:
+        logger.error(f"Error finding user by username {username}: {e}")
+    
+    return None
+
+async def get_last_transfer_time(user_id: int) -> float:
+    """Получает время последнего перевода пользователя"""
+    try:
+        async with aiosqlite.connect('profiles.db') as conn:
+            # Создаем таблицу если её нет
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS transfer_history (
+                    user_id INTEGER PRIMARY KEY,
+                    last_transfer_time REAL DEFAULT 0,
+                    total_transferred INTEGER DEFAULT 0
+                )
+            ''')
+            await conn.commit()
+            
+            cursor = await conn.execute(
+                'SELECT last_transfer_time FROM transfer_history WHERE user_id = ?',
+                (user_id,)
+            )
+            result = await cursor.fetchone()
+            return result[0] if result else 0.0
+    except Exception as e:
+        logger.error(f"Error getting last transfer time for user {user_id}: {e}")
+        return 0.0
+
+async def update_last_transfer_time(user_id: int, transfer_time: float):
+    """Обновляет время последнего перевода пользователя"""
+    try:
+        async with aiosqlite.connect('profiles.db') as conn:
+            await conn.execute('''
+                INSERT OR REPLACE INTO transfer_history (user_id, last_transfer_time, total_transferred)
+                VALUES (?, ?, COALESCE((SELECT total_transferred FROM transfer_history WHERE user_id = ?), 0) + 1)
+            ''', (user_id, transfer_time, user_id))
+            await conn.commit()
+    except Exception as e:
+        logger.error(f"Error updating last transfer time for user {user_id}: {e}")
+
+@stat_router.message(F.text.lower().startswith(("дать", "/дать", "передать", "/передать")))
+async def give_lumcoins(message: types.Message, profile_manager: ProfileManager):
+    """Передача Lumcoins другому пользователю с ограничениями"""
+    user_id = message.from_user.id
+    logger.info(f"Received 'дать' command from user {user_id}: '{message.text}'")
+    
+    # Парсим команду
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply(
+            "❌ Неправильный формат команды.\n\n"
+            "Используйте:\n"
+            "• `дать 1000 @username` - передать 1000 LUM пользователю\n"
+            "• Ответьте на сообщение пользователя с текстом `дать 1000`\n\n"
+            "💡 *Лимиты:*\n"
+            "• Максимум: 50,000 LUM за раз\n"
+            "• Кулдаун: 10 часов между переводами"
+        )
+        return
+    
+    # Пытаемся извлечь сумму
+    try:
+        amount = int(parts[1])
+    except ValueError:
+        await message.reply("❌ Сумма должна быть числом!")
+        return
+    
+    # Проверяем ограничения
+    if amount <= 0:
+        await message.reply("❌ Сумма должна быть положительной!")
+        return
+    
+    if amount > 50000:
+        await message.reply("❌ Максимальная сумма для передачи - 50,000 LUM!")
+        return
+    
+    # Проверяем кулдаун (10 часов)
+    last_transfer_time = await get_last_transfer_time(user_id)
+    current_time = time.time()
+    cooldown_seconds = 10 * 60 * 60  # 10 часов
+    
+    if current_time - last_transfer_time < cooldown_seconds:
+        remaining_time = int(cooldown_seconds - (current_time - last_transfer_time))
+        hours = remaining_time // 3600
+        minutes = (remaining_time % 3600) // 60
+        
+        await message.reply(
+            f"⏳ Вы сможете передавать деньги снова через {hours}ч {minutes}м\n\n"
+            f"💡 Следующий перевод: <code>{datetime.fromtimestamp(current_time + remaining_time).strftime('%H:%M')}</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+    
+    # Ищем целевого пользователя
+    target_user = None
+    
+    # Способ 1: через упоминание (@username)
+    if len(parts) > 2:
+        username = parts[2].lstrip('@')
+        target_user = await find_user_by_username(username)
+    
+    # Способ 2: через ответ на сообщение
+    if not target_user and message.reply_to_message:
+        target_user = message.reply_to_message.from_user
+    
+    if not target_user:
+        await message.reply(
+            "❌ Не указан получатель.\n\n"
+            "Укажите пользователя:\n"
+            "• Через упоминание: `дать 1000 @username`\n"
+            "• Ответьте на сообщение: `дать 1000`"
+        )
+        return
+    
+    # Нельзя передавать себе
+    if target_user.id == user_id:
+        await message.reply("❌ Нельзя передавать деньги самому себе!")
+        return
+    
+    # Нельзя передавать боту
+    if target_user.is_bot:
+        await message.reply("❌ Нельзя передавать деньги боту!")
+        return
+    
+    # Проверяем баланс отправителя
+    sender_balance = await profile_manager.get_lumcoins(user_id)
+    if sender_balance < amount:
+        await message.reply(
+            f"❌ Недостаточно средств!\n"
+            f"💰 Ваш баланс: {sender_balance} LUM\n"
+            f"💸 Нужно: {amount} LUM"
+        )
+        return
+    
+    # Проверяем, что получатель существует в базе
+    await ensure_user_exists(target_user.id, target_user.username, target_user.first_name)
+    
+    # Выполняем перевод
+    try:
+        # Списываем у отправителя
+        await profile_manager.update_lumcoins(user_id, -amount)
+        # Зачисляем получателю
+        await profile_manager.update_lumcoins(target_user.id, amount)
+        # Обновляем время последнего перевода
+        await update_last_transfer_time(user_id, current_time)
+        
+        # Формируем сообщение об успехе
+        sender_name = message.from_user.first_name
+        target_name = target_user.first_name or target_user.username or "пользователь"
+        
+        success_message = (
+            f"✅ **Перевод выполнен!**\n\n"
+            f"💸 *{sender_name}* → *{target_name}*\n"
+            f"💰 Сумма: *{amount:,} LUM*\n"
+            f"📊 Ваш баланс: *{sender_balance - amount:,} LUM*\n\n"
+            f"⏳ Следующий перевод через *10 часов*"
+        )
+        
+        await message.reply(success_message, parse_mode=ParseMode.MARKDOWN)
+        logger.info(f"User {user_id} transferred {amount} LUM to user {target_user.id}")
+        
+        # Уведомляем получателя, если это возможно
+        try:
+            if target_user.id != user_id:
+                notification = (
+                    f"💸 Вам перевели {amount:,} LUM от {sender_name}!\n"
+                    f"💰 Ваш новый баланс: {await profile_manager.get_lumcoins(target_user.id):,} LUM"
+                )
+                await message.bot.send_message(target_user.id, notification)
+        except Exception as e:
+            logger.warning(f"Could not send notification to user {target_user.id}: {e}")
+        
+    except Exception as e:
+        logger.error(f"Error transferring Lumcoins from {user_id} to {target_user.id}: {e}")
+        await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
+
+async def get_last_transfer_time(user_id: int) -> float:
+    """Получает время последнего перевода пользователя"""
+    try:
+        async with aiosqlite.connect('profiles.db') as conn:
+            # Создаем таблицу если её нет
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS transfer_history (
+                    user_id INTEGER PRIMARY KEY,
+                    last_transfer_time REAL DEFAULT 0,
+                    total_transferred INTEGER DEFAULT 0
+                )
+            ''')
+            await conn.commit()
+            
+            cursor = await conn.execute(
+                'SELECT last_transfer_time FROM transfer_history WHERE user_id = ?',
+                (user_id,)
+            )
+            result = await cursor.fetchone()
+            return result[0] if result else 0.0
+    except Exception as e:
+        logger.error(f"Error getting last transfer time for user {user_id}: {e}")
+        return 0.0
+
+async def update_last_transfer_time(user_id: int, transfer_time: float):
+    """Обновляет время последнего перевода пользователя"""
+    try:
+        async with aiosqlite.connect('profiles.db') as conn:
+            await conn.execute('''
+                INSERT OR REPLACE INTO transfer_history (user_id, last_transfer_time, total_transferred)
+                VALUES (?, ?, COALESCE((SELECT total_transferred FROM transfer_history WHERE user_id = ?), 0) + 1)
+            ''', (user_id, transfer_time, user_id))
+            await conn.commit()
+    except Exception as e:
+        logger.error(f"Error updating last transfer time for user {user_id}: {e}")
+
+@stat_router.message(F.text.lower().startswith(("перевод", "/перевод", "трансфер", "/трансфер")))
+async def check_transfer_status(message: types.Message):
+    """Показывает статус перевода и время до следующего возможного"""
+    user_id = message.from_user.id
+    
+    last_transfer_time = await get_last_transfer_time(user_id)
+    current_time = time.time()
+    cooldown_seconds = 10 * 60 * 60  # 10 часов
+    
+    if last_transfer_time == 0:
+        await message.reply(
+            "🔄 **Статус переводов**\n\n"
+            "✅ Вы можете переводить деньги сейчас!\n"
+            "💰 Максимум: 50,000 LUM за раз\n"
+            "⏳ Кулдаун: 10 часов\n\n"
+            "💡 Используйте: `дать [сумма] @username`"
+        )
+        return
+    
+    time_since_last = current_time - last_transfer_time
+    
+    if time_since_last < cooldown_seconds:
+        remaining_time = int(cooldown_seconds - time_since_last)
+        hours = remaining_time // 3600
+        minutes = (remaining_time % 3600) // 60
+        
+        last_transfer_str = datetime.fromtimestamp(last_transfer_time).strftime('%d.%m.%Y в %H:%M')
+        next_transfer_str = datetime.fromtimestamp(last_transfer_time + cooldown_seconds).strftime('%H:%M')
+        
+        await message.reply(
+            f"🔄 **Статус переводов**\n\n"
+            f"⏳ Вы сможете передавать деньги через *{hours}ч {minutes}м*\n"
+            f"📅 Последний перевод: *{last_transfer_str}*\n"
+            f"🕐 Следующий перевод: *{next_transfer_str}*\n\n"
+            f"💰 Максимум: *50,000 LUM*",
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        await message.reply(
+            "🔄 **Статус переводов**\n\n"
+            "✅ Вы можете переводить деньги сейчас!\n"
+            "💰 Максимум: 50,000 LUM за раз\n"
+            "⏳ Кулдаун: 10 часов\n\n"
+            "💡 Используйте: `дать [сумма] @username`"
+        )

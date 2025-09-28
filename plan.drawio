@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="T-KOo3m1sxwY2ycDkscS" name="Страница — 1">
-        <mxGraphModel dx="4608" dy="2496" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="1968" dy="1538" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -198,7 +198,7 @@
                 <mxCell id="53" value="если юзер реплает другому много раз то делать их &quot;знакомыми&quot;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="730" y="-30" width="120" height="90" as="geometry"/>
                 </mxCell>
-                <mxCell id="132" style="edgeStyle=none;html=1;" edge="1" parent="1" source="55" target="131">
+                <mxCell id="132" style="edgeStyle=none;html=1;" parent="1" source="55" target="131" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="55" value="возможность добавлять в друзья" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
@@ -361,13 +361,13 @@
                 <mxCell id="129" value="общая казна с люмкоинов и возможность приобритения и ранги&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="720" y="-350" width="120" height="100" as="geometry"/>
                 </mxCell>
-                <mxCell id="131" value="Давать больше опыта при общении друзей" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                <mxCell id="131" value="Давать больше опыта при общении друзей" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="530" y="-180" width="120" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="135" style="edgeStyle=none;html=1;" edge="1" parent="1" source="134" target="62">
+                <mxCell id="135" style="edgeStyle=none;html=1;" parent="1" source="134" target="62" edge="1">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
-                <mxCell id="134" value="За PlLUMcoins" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                <mxCell id="134" value="За PLUMcoins" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="10" y="-45" width="120" height="60" as="geometry"/>
                 </mxCell>
             </root>
