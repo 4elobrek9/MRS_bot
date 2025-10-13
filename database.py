@@ -497,3 +497,47 @@ async def get_group_censor_setting(group_id: int) -> bool:
 async def get_group_admins(group_id: int) -> List[int]:
     """Получает список администраторов группы"""
     return []
+
+async def get_user_lumcoins(self, user_id: int) -> int:
+    """Получить количество Lumcoins пользователя"""
+    async with self.connection.execute(
+        "SELECT lumcoins FROM user_profiles WHERE user_id = ?",
+        (user_id,)
+    ) as cursor:
+        result = await cursor.fetchone()
+        return result[0] if result else 0
+
+async def update_user_lumcoins(self, user_id: int, amount: int) -> bool:
+    """Обновить баланс Lumcoins пользователя"""
+    try:
+        await self.connection.execute(
+            "UPDATE user_profiles SET lumcoins = lumcoins + ? WHERE user_id = ?",
+            (amount, user_id)
+        )
+        await self.connection.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error updating lumcoins for user {user_id}: {e}")
+        return False
+
+async def get_casino_stats(self, user_id: int) -> tuple:
+    """Получить статистику казино пользователя"""
+    async with self.connection.execute(
+        "SELECT win_streak, roulette_loss_streak, blackjack_loss_streak FROM user_profiles WHERE user_id = ?",
+        (user_id,)
+    ) as cursor:
+        result = await cursor.fetchone()
+        return result if result else (0, 0, 0)
+
+async def update_casino_stats(self, user_id: int, win_streak: int, roulette_loss_streak: int, blackjack_loss_streak: int) -> bool:
+    """Обновить статистику казино пользователя"""
+    try:
+        await self.connection.execute(
+            "UPDATE user_profiles SET win_streak = ?, roulette_loss_streak = ?, blackjack_loss_streak = ? WHERE user_id = ?",
+            (win_streak, roulette_loss_streak, blackjack_loss_streak, user_id)
+        )
+        await self.connection.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Error updating casino stats for user {user_id}: {e}")
+        return False

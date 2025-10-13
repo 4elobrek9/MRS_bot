@@ -5,6 +5,7 @@ from core.main.dec_command import *
 from core.group.stat.manager import ProfileManager
 from aiogram.fsm.strategy import FSMStrategy
 from core.group.promo import setup_promo_handlers, handle_promo_command
+from core.group.casino import setup_casino_handlers, casino_main_menu
 
 dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
 
@@ -74,6 +75,7 @@ async def main():
         "передать": (give_lumcoins, ["message", "profile_manager"]),
         "перевод": (check_transfer_status, ["message"]),
         "трансфер": (check_transfer_status, ["message"]),
+        "казино": (casino_main_menu, ["message", "profile_manager"]),
     }
 
     for action in RPActions.SORTED_COMMANDS_FOR_PARSING:
@@ -108,6 +110,10 @@ async def main():
         profile_manager_instance=profile_manager,
         database_module=db
     )
+
+    # Настройка казино handlers
+    logger.info("main: Настройка обработчиков казино.")
+    setup_casino_handlers(main_dp=group_text_router, profile_manager=profile_manager)
 
     dp.include_router(group_text_router)
     logger.info("main: group_text_router успешно интегрирован в главный диспетчер.")

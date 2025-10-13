@@ -16,7 +16,7 @@ import asyncio
 promo_file_lock = asyncio.Lock()
 
 # Путь к файлу с промокодами
-PROMO_FILE_PATH = Path("C:/Users/Student2-4/MRS_bot-4/data/PROMO.txt")
+PROMO_FILE_PATH = Path("C:/4chan/.GITHUB/MRS_bot/data/PROMO.txt")
 
 async def load_promocodes() -> Dict[str, Tuple[int, int]]:
     """
