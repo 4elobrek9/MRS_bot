@@ -15,15 +15,14 @@ from core.group.stat.manager import ProfileManager
 import asyncio
 promo_file_lock = asyncio.Lock()
 
-# Путь к файлу с промокодами
-PROMO_FILE_PATH = Path("C:/4chan/.GITHUB/MRS_bot/data/PROMO.txt")
+BASE_DIR = Path(__file__).parent.parent.parent
+PROMO_FILE_PATH = BASE_DIR / "data" / "PROMO.txt"
+
+PROMO_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+PROMO_FILE_PATH.touch(exist_ok=True)
+
 
 async def load_promocodes() -> Dict[str, Tuple[int, int]]:
-    """
-    Загружает промокоды из файла
-    Формат: CODE AMOUNT MAX_USES
-    Возвращает словарь: {code: (amount, max_uses)}
-    """
     async with promo_file_lock:
         promocodes = {}
         
