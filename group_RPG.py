@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 rpg_router = Router(name="rpg_router")
 
-@rpg_router.message(F.text.lower() == "инвентарь")
-async def show_inventory(message: types.Message, profile_manager: ProfileManager):
+# @rpg_router.message(F.text.lower() == "инвентарьф")
+async def show_inventoryF(message: types.Message, profile_manager: ProfileManager):
     logger.info(f"Received 'инвентарь' command from user {message.from_user.id}.")
     user_id = message.from_user.id
 

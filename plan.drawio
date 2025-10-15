@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="T-KOo3m1sxwY2ycDkscS" name="Страница — 1">
-        <mxGraphModel dx="1968" dy="1538" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+        <mxGraphModel dx="2020" dy="1941" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -302,13 +302,17 @@
                     <mxGeometry x="360" y="1480" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="97" style="edgeStyle=none;html=1;" parent="1" source="94" target="96" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="400" y="1270"/>
+                        </Array>
+                    </mxGeometry>
                 </mxCell>
                 <mxCell id="94" value="ДУЭЛЬ" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="395" y="1090" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="96" value="проиграет тот у кого меньше счёт профиля и урон также не возможность сражаться с теми у кого большая разница и фактор случайности что человек с параметрами ниже может выйграть с шансом 20%" style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
-                    <mxGeometry x="200" y="1290" width="120" height="260" as="geometry"/>
+                    <mxGeometry x="180" y="1270" width="120" height="260" as="geometry"/>
                 </mxCell>
                 <mxCell id="98" value="Ежедневные задания по типу провести активность и т.д." style="rounded=0;whiteSpace=wrap;html=1;" parent="1" vertex="1">
                     <mxGeometry x="680" y="960" width="120" height="60" as="geometry"/>

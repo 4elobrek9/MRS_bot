@@ -163,6 +163,18 @@ async def initialize_database() -> None:
             )
         ''')
         await db.commit()
+    async with aiosqlite.connect('profiles.db') as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_inventory (
+                user_id INTEGER,
+                item_key TEXT,
+                item_type TEXT,
+                item_data TEXT,
+                acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, item_key)
+            )
+        ''')
+        await conn.commit()
     logger.info("Database initialized successfully.")
 
 async def ensure_user_exists(user_id: int, username: Optional[str], first_name: str) -> None:
@@ -541,3 +553,4 @@ async def update_casino_stats(self, user_id: int, win_streak: int, roulette_loss
     except Exception as e:
         logger.error(f"Error updating casino stats for user {user_id}: {e}")
         return False
+
