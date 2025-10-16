@@ -6,7 +6,7 @@ from core.group.stat.manager import ProfileManager
 from aiogram.fsm.strategy import FSMStrategy
 from core.group.promo import setup_promo_handlers, handle_promo_command
 from core.group.casino import setup_casino_handlers, casino_main_menu
-from core.group.RPG.unified_rpg import show_inventory, show_workbench_cmd, show_shop_main
+from core.group.RPG.unified_rpg import show_inventory, show_workbench_cmd, show_shop_main, setup_rpg_handlers, initialize_on_startup
 
 dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
 
@@ -24,6 +24,51 @@ from core.group.RP.actions import RPActions
 from rp_module_refactored import cmd_check_self_hp, cmd_show_rp_actions_list, handle_rp_action_via_text
 from command import cmd_help
 
+async def migrate_inventory_table():
+    """Миграция таблицы инвентаря для сохранения данных"""
+    try:
+        import aiosqlite
+        async with aiosqlite.connect('profiles.db') as conn:
+            # Проверяем существование столбца quantity
+            cursor = await conn.execute("PRAGMA table_info(user_inventory)")
+            columns = await cursor.fetchall()
+            column_names = [column[1] for column in columns]
+            
+            if 'quantity' not in column_names:
+                logger.info("Добавляем столбец quantity в таблицу user_inventory")
+                
+                # Создаем временную таблицу с новой структурой
+                await conn.execute('''
+                    CREATE TABLE IF NOT EXISTS user_inventory_new (
+                        user_id INTEGER,
+                        item_key TEXT,
+                        item_type TEXT,
+                        quantity INTEGER DEFAULT 1,
+                        item_data TEXT,
+                        acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (user_id, item_key)
+                    )
+                ''')
+                
+                # Копируем данные из старой таблицы с quantity = 1
+                await conn.execute('''
+                    INSERT INTO user_inventory_new (user_id, item_key, item_type, quantity, item_data, acquired_at)
+                    SELECT user_id, item_key, item_type, 1, item_data, acquired_at 
+                    FROM user_inventory
+                ''')
+                
+                # Удаляем старую таблицу и переименовываем новую
+                await conn.execute('DROP TABLE user_inventory')
+                await conn.execute('ALTER TABLE user_inventory_new RENAME TO user_inventory')
+                
+                await conn.commit()
+                logger.info("✅ Миграция таблицы инвентаря завершена успешно")
+            else:
+                logger.info("✅ Таблица инвентаря уже имеет столбец quantity")
+                
+    except Exception as e:
+        logger.error(f"❌ Ошибка миграции таблицы инвентаря: {e}")
+
 async def main():
     logger.info("Запуск основной функции бота.")
 
@@ -39,38 +84,17 @@ async def main():
     await db.initialize_database()
     await db.create_promo_table()
 
+    # Миграция таблицы инвентаря (СОХРАНЯЕМ ДАННЫЕ!)
+    logger.info("Проверка и миграция таблицы инвентаря...")
+    await migrate_inventory_table()
+
+    # Инициализация RPG системы
+    logger.info("Инициализация RPG системы...")
     try:
-        import aiosqlite
-        async with aiosqlite.connect('profiles.db') as conn:
-            await conn.execute('DROP TABLE IF EXISTS user_inventory')
-            
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS user_inventory (
-                    user_id INTEGER,
-                    item_key TEXT,
-                    item_type TEXT,
-                    item_data TEXT,
-                    acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (user_id, item_key)
-                )
-            ''')
-            await conn.commit()
-            logger.info("RPG inventory table reinitialized with correct structure")
-            
-            cursor = await conn.execute('SELECT user_id, active_background FROM user_profiles WHERE active_background != "default"')
-            users_with_backgrounds = await cursor.fetchall()
-            
-            for user_id, background in users_with_backgrounds:
-                await conn.execute('''
-                    INSERT OR IGNORE INTO user_inventory (user_id, item_key, item_type, item_data)
-                    VALUES (?, ?, ?, ?)
-                ''', (user_id, background, 'background', json.dumps({'name': background, 'type': 'background'})))
-            
-            await conn.commit()
-            logger.info(f"Synced {len(users_with_backgrounds)} existing backgrounds to inventory")
-            
+        await initialize_on_startup()
+        logger.info("✅ RPG система успешно инициализирована")
     except Exception as e:
-        logger.error(f"Error initializing RPG inventory table: {e}")
+        logger.error(f"❌ Ошибка инициализации RPG системы: {e}")
 
     logger.info("Инициализация StickerManager и загрузка стикеров.")
     sticker_manager_instance = StickerManager(cache_file_path=STICKERS_CACHE_FILE)
@@ -138,7 +162,6 @@ async def main():
     setup_stat_handlers(main_dp=group_text_router)
 
     logger.info("Включение RPG handlers.")
-    from core.group.RPG.unified_rpg import setup_rpg_handlers
     setup_rpg_handlers(main_dp=group_text_router)
 
     logger.info("Включение rp_router в group_text_router.")
