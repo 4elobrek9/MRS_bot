@@ -1,4 +1,3 @@
-# main.py
 from core.main.ez_main import *
 from core.main.ollama import *
 from core.main.command import *
@@ -7,7 +6,20 @@ from core.group.stat.manager import ProfileManager
 from aiogram.fsm.strategy import FSMStrategy
 from core.group.promo import setup_promo_handlers, handle_promo_command
 from core.group.casino import setup_casino_handlers, casino_main_menu
-from core.group.RPG.unified_rpg import show_inventory, show_workbench_cmd, show_shop_main, setup_rpg_handlers, initialize_on_startup, show_sell_menu, start_trade, show_auction, show_market, show_investment
+from core.group.stat.shop_config import ShopConfig
+from core.group.RPG import (
+    setup_rpg_handlers, 
+    initialize_on_startup,
+    show_inventory,
+    show_workbench_cmd,
+    show_shop_main,
+    start_trade,
+    show_auction,
+    show_market,
+    show_investment,
+    show_my_investments
+)
+from core.group.RPG.investment import show_sell_menu
 
 dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
 
@@ -133,6 +145,7 @@ async def main():
         "аукцион": (show_auction, ["message", "profile_manager"]),
         "рынок": (show_market, ["message", "profile_manager"]),
         "инвестировать": (show_investment, ["message", "profile_manager"]),
+        "мои инвестиции": (show_my_investments, ["message", "profile_manager"]),
     }
 
     for action in RPActions.SORTED_COMMANDS_FOR_PARSING:
