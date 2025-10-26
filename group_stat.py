@@ -17,10 +17,12 @@ from aiogram.enums import ChatType
 from database import set_group_censor_setting, get_group_censor_setting, get_group_admins
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
-from aiogram.utils.markdown import hlink
+from aiogram.utils.markdown import hlink, hbold, hcode
 from aiogram.enums import ParseMode # Добавлен импорт ParseMode
 from core.group.stat.config import WorkConfig, ProfileConfig
 
+# <<< ДОБАВЛЕНО: Импортируем новый роутер
+from core.group.stat.plum_shop_handlers import plum_shop_router 
 
 import logging
 logger = logging.getLogger(__name__)
@@ -28,6 +30,9 @@ logger = logging.getLogger(__name__)
 formatter = string.Formatter()
 
 stat_router = Router(name="stat_router")
+
+# <<< ДОБАВЛЕНО: Интегрируем роутер П-Магазина
+stat_router.include_router(plum_shop_router)
 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -42,7 +47,8 @@ __all__ = [
     'manage_censor',
     'heal_hp',
     'give_lumcoins',
-    'check_transfer_status'
+    'check_transfer_status',
+    'plum_shop_router' # <<< ДОБАВЛЕНО
 ]
 
 class CustomBackgroundStates(StatesGroup):
@@ -71,24 +77,31 @@ async def process_buy_custom_background(callback: types.CallbackQuery, profile_m
         custom_bg_purchases[user_id] = {
             "message_id": callback.message.message_id,
             "price": bg_price,
-            "lumcoins_before": user_lumcoins
+            "lumcoins_before": user_lumcoins,
+            "timestamp": time.time()  # Добавляем timestamp
         }
         
         # Переходим в состояние ожидания URL
         await state.set_state(CustomBackgroundStates.waiting_for_url)
         
         await callback.message.edit_text(
-            "🖼️ Отправьте ссылку на изображение для вашего кастомного фона.\n\n"
-            "Требования:\n"
-            "• Формат: JPG, PNG или GIF\n"
+            "🖼️ **Покупка кастомного фона**\n\n"
+            "Отправьте ссылку на изображение для вашего фона.\n\n"
+            "📋 Требования:\n"
+            "• Формат: JPG, PNG, GIF или WebP\n"
             "• Соотношение сторон: 21:9 (широкоформатное)\n"
-            "• Минимальное разрешение: 1680×720\n\n"
+            "• Рекомендуемое разрешение: 1680×720 или выше\n\n"
+            "❌ Ссылки на сайты (например, Google Drive, Dropbox) не принимаются\n"
+            "✅ Используйте прямые ссылки на изображения\n\n"
             "Для отмены отправьте /cancel",
             reply_markup=None
         )
     else:
         await callback.message.edit_text(
-            f"❌ Недостаточно Lumcoins для покупки кастомного фона. Нужно {bg_price} Lumcoins, у вас {user_lumcoins}.",
+            f"❌ Недостаточно Lumcoins для покупки кастомного фона.\n\n"
+            f"Нужно: {bg_price} Lumcoins\n"
+            f"У вас: {user_lumcoins} Lumcoins\n\n"
+            f"Заработать Lumcoins можно командой 'работать'",
             reply_markup=None
         )
 
@@ -160,59 +173,6 @@ async def cleanup_old_purchases():
     custom_bg_purchases = {k: v for k, v in custom_bg_purchases.items() 
                           if current_time - v.get('timestamp', 0) < 3600}
 
-
-# Обновим процесс покупки чтобы добавлять timestamp
-@stat_router.callback_query(F.data == "buy_bg:custom")
-async def process_buy_custom_background(callback: types.CallbackQuery, profile_manager: ProfileManager, state: FSMContext):
-    user_id = callback.from_user.id
-    logger.info(f"User {user_id} attempting to buy custom background.")
-
-    # Очищаем старые покупки
-    await cleanup_old_purchases()
-
-    available_backgrounds = profile_manager.get_available_backgrounds()
-    bg_info = available_backgrounds.get("custom")
-
-    if not bg_info:
-        await callback.message.edit_text("❌ Неизвестный фон.", reply_markup=None)
-        return
-
-    bg_price = bg_info.get('price', 10000)
-    user_lumcoins = await profile_manager.get_lumcoins(user_id)
-
-    if user_lumcoins >= bg_price:
-        # Сохраняем информацию о покупке
-        custom_bg_purchases[user_id] = {
-            "message_id": callback.message.message_id,
-            "price": bg_price,
-            "lumcoins_before": user_lumcoins,
-            "timestamp": time.time()  # Добавляем timestamp
-        }
-        
-        # Переходим в состояние ожидания URL
-        await state.set_state(CustomBackgroundStates.waiting_for_url)
-        
-        await callback.message.edit_text(
-            "🖼️ **Покупка кастомного фона**\n\n"
-            "Отправьте ссылку на изображение для вашего фона.\n\n"
-            "📋 Требования:\n"
-            "• Формат: JPG, PNG, GIF или WebP\n"
-            "• Соотношение сторон: 21:9 (широкоформатное)\n"
-            "• Рекомендуемое разрешение: 1680×720 или выше\n\n"
-            "❌ Ссылки на сайты (например, Google Drive, Dropbox) не принимаются\n"
-            "✅ Используйте прямые ссылки на изображения\n\n"
-            "Для отмены отправьте /cancel",
-            reply_markup=None
-        )
-    else:
-        await callback.message.edit_text(
-            f"❌ Недостаточно Lumcoins для покупки кастомного фона.\n\n"
-            f"Нужно: {bg_price} Lumcoins\n"
-            f"У вас: {user_lumcoins} Lumcoins\n\n"
-            f"Заработать Lumcoins можно командой 'работать'",
-            reply_markup=None
-        )
-
 # Добавим обработчик подтверждения
 @stat_router.callback_query(F.data.startswith("confirm_custom_bg:"))
 async def process_confirm_custom_bg(callback: types.CallbackQuery, profile_manager: ProfileManager, state: FSMContext):
@@ -277,7 +237,7 @@ async def process_cancel_custom_bg(callback: types.CallbackQuery, state: FSMCont
 
 # Добавим проверку кастомных фонов в функцию активации
 @stat_router.callback_query(F.data.startswith("activate_bg:"))
-async def process_activate_background(callback: types.CallbackQuery, profile_manager: ProfileManager):
+async def process_activate_background(callback: types.CallbackQuery, profile_manager: ProfileManager, bot: Bot):
     user_id = callback.from_user.id
     background_key_to_activate = callback.data.split(":")[1]
 
@@ -286,7 +246,8 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
     # Проверяем, есть ли фон в инвентаре пользователя
     user_backgrounds_inventory = await profile_manager.get_user_backgrounds_inventory(user_id)
 
-    if background_key_to_activate in user_backgrounds_inventory:
+    if background_key_to_activate in user_backgrounds_inventory or background_key_to_activate == 'default' or background_key_to_activate.startswith("custom:"):
+        
         # Если это кастомный фон, проверяем его наличие
         if background_key_to_activate.startswith("custom:"):
             async with aiosqlite.connect('profiles.db') as conn:
@@ -309,6 +270,8 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
         # Получаем информацию о фоне для отображения имени
         if background_key_to_activate.startswith("custom:"):
             bg_name = "Кастомный фон"
+        elif background_key_to_activate == 'default':
+            bg_name = "Стандартный"
         else:
             bg_info = ShopConfig.SHOP_BACKGROUNDS.get(background_key_to_activate)
             bg_name = bg_info['name'] if bg_info else background_key_to_activate
@@ -331,7 +294,8 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
     
-    await ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
+    # Используем метод ProfileManager для проверки/создания
+    await profile_manager.ensure_user_profile_exists(message.from_user)
 
     profile = await profile_manager.get_user_profile(message.from_user)
     if not profile:
@@ -472,6 +436,11 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
     background_key_to_buy = callback.data.split(":")[1]
 
     logger.info(f"User {user_id} attempting to buy background: '{background_key_to_buy}'.")
+    
+    # Обработка покупки кастомного фона перенесена в process_buy_custom_background
+    if background_key_to_buy == 'custom':
+        await process_buy_custom_background(callback, profile_manager, FSMContext.get_context(callback.bot, user_id, user_id)) # TODO: Fix FSM context passing
+        return
 
     available_backgrounds = profile_manager.get_available_backgrounds()
     bg_info = available_backgrounds.get(background_key_to_buy)
@@ -513,47 +482,6 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             reply_markup=None
         )
 
-@stat_router.callback_query(F.data.startswith("activate_bg:"))
-async def process_activate_background(callback: types.CallbackQuery, profile_manager: ProfileManager):
-    user_id = callback.from_user.id
-    background_key_to_activate = callback.data.split(":")[1]
-
-    logger.info(f"User {user_id} attempting to activate background: '{background_key_to_activate}'.")
-
-    # Проверяем, есть ли фон в инвентаре пользователя
-    user_backgrounds_inventory = await profile_manager.get_user_backgrounds_inventory(user_id)
-
-    if background_key_to_activate in user_backgrounds_inventory:
-        # Используем метод ProfileManager для установки активного фона
-        await profile_manager.set_user_background(user_id, background_key_to_activate) 
-        
-        # Получаем информацию о фоне для отображения имени
-        bg_info = ShopConfig.SHOP_BACKGROUNDS.get(background_key_to_activate)
-        bg_name = bg_info['name'] if bg_info else background_key_to_activate
-
-        logger.info(f"User {user_id} successfully activated background '{bg_name}'.")
-        await callback.message.edit_text(
-            f"✅ Фон '{bg_name}' успешно активирован!",
-            reply_markup=None
-        )
-        
-        # Добавляем небольшую задержку и обновляем профиль
-        await asyncio.sleep(1)
-        try:
-            user_profile = await profile_manager.get_user_profile(callback.from_user)
-            if user_profile:
-                image_bytes = await profile_manager.generate_profile_image(callback.from_user, user_profile, bot)
-            from core.main.ez_main import bot
-            await bot.send_photo(callback.message.chat.id, BufferedInputFile(image_bytes.getvalue(), filename="profile_updated.png"))
-        except Exception as e:
-            logger.error(f"Error showing updated profile: {e}")
-    else:
-        logger.warning(f"User {user_id} tried to activate background '{background_key_to_activate}' not in inventory.")
-        await callback.message.edit_text(
-            "❌ Этого фона нет в вашем инвентаре.",
-            reply_markup=None
-        )
-
 
 @stat_router.message(F.text.lower().startswith(("топ", "/топ")))
 async def show_top(message: types.Message, profile_manager: ProfileManager):
@@ -566,9 +494,7 @@ async def show_top(message: types.Message, profile_manager: ProfileManager):
     response_text = "🏆 **Топ 10 игроков по уровню:** 🏆\n\n"
     if top_users_level:
         for i, user_data in enumerate(top_users_level):
-            # Используем 'username' или 'first_name' для отображения имени пользователя
-            # 'username' может быть None, поэтому проверяем его первым
-            display_name = user_data.get('username') or user_data.get('first_name', 'Неизвестный')
+            display_name = user_data.get('display_name', 'Неизвестный')
             response_text += f"{i+1}. {display_name} - Уровень: {user_data['level']}, EXP: {user_data['exp']}\n"
     else:
         response_text += "Пока нет данных для топа по уровню.\n"
@@ -578,8 +504,7 @@ async def show_top(message: types.Message, profile_manager: ProfileManager):
     top_users_lumcoins = await profile_manager.get_top_users_by_lumcoins(limit=10)
     if top_users_lumcoins:
         for i, user_data in enumerate(top_users_lumcoins):
-            # Используем 'username' или 'first_name' для отображения имени пользователя
-            display_name = user_data.get('username') or user_data.get('first_name', 'Неизвестный')
+            display_name = user_data.get('display_name', 'Неизвестный')
             response_text += f"{i+1}. {display_name} - Lumcoins: {user_data['lumcoins']}\n"
     else:
         response_text += "Пока нет данных для топа по Lumcoins.\n"
@@ -595,13 +520,14 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     """
     # Подключение к основной БД бота
     try:
-        main_db_conn = await aiosqlite.connect('bot_database.db')
+        main_db_conn = await aiosqlite.connect(DB_PATH) # Используем DB_PATH из database.py
+        
         # Проверяем существование таблицы users
         cursor = await main_db_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
         table_exists = await cursor.fetchone()
         
         if not table_exists:
-            # Если таблицы нет, создаем её
+            # Если таблицы нет, создаем её (это должно быть в initialize_database, но для надежности)
             await main_db_conn.execute('''
                 CREATE TABLE users (
                     user_id INTEGER PRIMARY KEY,
@@ -621,6 +547,26 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
                 first_name = excluded.first_name,
                 last_active_ts = excluded.last_active_ts
         ''', (user_id, username, first_name, time.time()))
+        
+        # Убедимся, что таблицы user_modes и rp_user_stats существуют
+        await main_db_conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_modes (
+                user_id INTEGER PRIMARY KEY,
+                mode TEXT NOT NULL DEFAULT 'saharoza',
+                rating_opportunities_count INTEGER DEFAULT 0,
+                FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        ''')
+        await main_db_conn.execute('''
+            CREATE TABLE IF NOT EXISTS rp_user_stats (
+                user_id INTEGER PRIMARY KEY,
+                hp INTEGER NOT NULL DEFAULT 100,
+                heal_cooldown_ts REAL NOT NULL DEFAULT 0,
+                recovery_end_ts REAL NOT NULL DEFAULT 0,
+                FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+            )
+        ''')
+
         await main_db_conn.execute('''
             INSERT OR IGNORE INTO user_modes (user_id, mode, rating_opportunities_count)
             VALUES (?, 'saharoza', 0)
@@ -633,11 +579,13 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     except Exception as e:
         logger.error(f"Error ensuring user {user_id} in main bot database: {e}", exc_info=True)
     finally:
-        await main_db_conn.close()
+        if main_db_conn:
+            await main_db_conn.close()
 
     # Подключение к базе данных профилей
-    profiles_db_conn = await aiosqlite.connect('profiles.db')
+    profiles_db_conn = None
     try:
+        profiles_db_conn = await aiosqlite.connect('profiles.db')
         await profiles_db_conn.execute('''
             INSERT OR IGNORE INTO users (user_id, username, first_name, last_name)
             VALUES (?, ?, ?, ?)
@@ -651,8 +599,8 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     except Exception as e:
         logger.error(f"Error ensuring user {user_id} in profiles database: {e}", exc_info=True)
     finally:
-        if main_db_conn:
-            await main_db_conn.close()
+        if profiles_db_conn:
+            await profiles_db_conn.close()
 
 
 def setup_stat_handlers(main_dp: Router):
@@ -667,9 +615,14 @@ async def manage_censor(message: types.Message, bot: Bot):
     chat_id = message.chat.id
     
     # Проверяем права администратора
-    admins = await get_group_admins(chat_id)
-    if user_id not in admins:
-        await message.reply("❌ Эта команда доступна только администраторам группы.")
+    try:
+        member = await bot.get_chat_member(chat_id, user_id)
+        if member.status not in ('administrator', 'creator'):
+            await message.reply("❌ Эта команда доступна только администраторам группы.")
+            return
+    except Exception as e:
+        logger.error(f"Error checking admin status for user {user_id} in chat {chat_id}: {e}")
+        await message.reply("❌ Не удалось проверить ваши права администратора.")
         return
         
     text = message.text.lower().split()
@@ -700,9 +653,11 @@ async def find_user_by_username(username: str):
     """
     try:
         async with aiosqlite.connect('profiles.db') as conn:
+            # Удаляем @ из начала, если он есть
+            clean_username = username.lstrip('@')
             cursor = await conn.execute(
-                'SELECT user_id, username, first_name FROM users WHERE username = ? OR username = ?',
-                (username, f"@{username}")
+                'SELECT user_id, username, first_name FROM users WHERE username = ?',
+                (clean_username,)
             )
             user_data = await cursor.fetchone()
             
@@ -891,41 +846,6 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         logger.error(f"Error transferring Lumcoins from {user_id} to {target_user.id}: {e}")
         await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
 
-async def get_last_transfer_time(user_id: int) -> float:
-    """Получает время последнего перевода пользователя"""
-    try:
-        async with aiosqlite.connect('profiles.db') as conn:
-            # Создаем таблицу если её нет
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS transfer_history (
-                    user_id INTEGER PRIMARY KEY,
-                    last_transfer_time REAL DEFAULT 0,
-                    total_transferred INTEGER DEFAULT 0
-                )
-            ''')
-            await conn.commit()
-            
-            cursor = await conn.execute(
-                'SELECT last_transfer_time FROM transfer_history WHERE user_id = ?',
-                (user_id,)
-            )
-            result = await cursor.fetchone()
-            return result[0] if result else 0.0
-    except Exception as e:
-        logger.error(f"Error getting last transfer time for user {user_id}: {e}")
-        return 0.0
-
-async def update_last_transfer_time(user_id: int, transfer_time: float):
-    """Обновляет время последнего перевода пользователя"""
-    try:
-        async with aiosqlite.connect('profiles.db') as conn:
-            await conn.execute('''
-                INSERT OR REPLACE INTO transfer_history (user_id, last_transfer_time, total_transferred)
-                VALUES (?, ?, COALESCE((SELECT total_transferred FROM transfer_history WHERE user_id = ?), 0) + 1)
-            ''', (user_id, transfer_time, user_id))
-            await conn.commit()
-    except Exception as e:
-        logger.error(f"Error updating last transfer time for user {user_id}: {e}")
 
 @stat_router.message(F.text.lower().startswith(("перевод", "/перевод", "трансфер", "/трансфер")))
 async def check_transfer_status(message: types.Message):

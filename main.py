@@ -1,12 +1,21 @@
+import asyncio
+import logging
+from pathlib import Path
+from aiogram import Dispatcher, F, Router, Bot
+from aiogram.fsm.strategy import FSMStrategy
+from aiogram.enums import ChatType
+from aiogram.filters import Command
+
+# --- Основные импорты из CORE ---
 from core.main.ez_main import *
 from core.main.ollama import *
 from core.main.command import *
 from core.main.dec_command import *
+
+# --- Импорты модулей из CORE ---
 from core.group.stat.manager import ProfileManager
-from aiogram.fsm.strategy import FSMStrategy
 from core.group.promo import setup_promo_handlers, handle_promo_command
 from core.group.casino import setup_casino_handlers, casino_main_menu
-from core.group.stat.shop_config import ShopConfig
 from core.group.RPG import (
     setup_rpg_handlers, 
     initialize_on_startup,
@@ -20,22 +29,48 @@ from core.group.RPG import (
     show_my_investments
 )
 from core.group.RPG.investment import show_sell_menu
+from core.group.RP.actions import RPActions
 
-dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
-
+# --- Импорты из КОРНЯ проекта ---
 from group_stat import (
     show_profile, 
     do_work, 
-    show_shop, 
+    show_shop, # Это магазин ФОНОВ (из group_stat.py)
     show_top, 
     manage_censor, 
     heal_hp,
     give_lumcoins,
-    check_transfer_status
+    check_transfer_status,
+    setup_stat_handlers # Важно для регистрации кнопок
 )
-from core.group.RP.actions import RPActions
-from rp_module_refactored import cmd_check_self_hp, cmd_show_rp_actions_list, handle_rp_action_via_text
+from rp_module_refactored import (
+    cmd_check_self_hp, 
+    cmd_show_rp_actions_list, 
+    handle_rp_action_via_text,
+    setup_rp_handlers
+)
 from command import cmd_help
+import database as db
+
+# --- Импорты УТИЛИТ из CORE (Исправленные пути) ---
+from censor_module import * # <<< ИСПРАВЛЕН ПУТЬ
+# from core.utils.stickers import StickerManager
+# from core.utils.jokes import jokes_task
+# from core.group.RP.recovery import periodic_hp_recovery_task
+# from core.group.stat.daily_reset import reset_daily_stats_task, migrate_existing_users_exp
+
+# <<< ДОБАВЛЕНО: Импорт для П-Магазина
+from core.group.stat.plum_shop_handlers import cmd_plum_shop, plum_shop_router
+
+
+logger = logging.getLogger(__name__)
+
+# --- Константы ---
+BAD_WORDS_FILE = Path("data") / "bad_words.txt"
+STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
+
+dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
+
 
 async def migrate_inventory_table():
     try:
@@ -139,13 +174,17 @@ async def main():
         "казино": (casino_main_menu, ["message", "profile_manager"]),
         "инвентарь": (show_inventory, ["message", "profile_manager"]),
         "верстак": (show_workbench_cmd, ["message", "profile_manager"]), 
-        "магазин": (show_shop_main, ["message", "profile_manager"]),
+        "магазин": (show_shop, ["message", "profile_manager"]), # Магазин ФОНОВ
         "продать": (show_sell_menu, ["message", "profile_manager"]),
         "обмен": (start_trade, ["message", "profile_manager"]),
         "аукцион": (show_auction, ["message", "profile_manager"]),
         "рынок": (show_market, ["message", "profile_manager"]),
         "инвестировать": (show_investment, ["message", "profile_manager"]),
         "мои инвестиции": (show_my_investments, ["message", "profile_manager"]),
+        
+        # <<< ДОБАВЛЕНО: Обработка П-Магазина
+        "пмагазин": (cmd_plum_shop, ["message", "profile_manager"]),
+        "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
     }
 
     for action in RPActions.SORTED_COMMANDS_FOR_PARSING:
@@ -153,9 +192,12 @@ async def main():
             direct_dispatch_handlers[action] = (handle_rp_action_via_text, ["message", "bot", "profile_manager"])
 
     non_slash_commands_to_exclude = list(direct_dispatch_handlers.keys())
+    # <<< ИЗМЕНЕНИЕ: Добавляем "магазин", "пмагазин", "pshop" в исключения цензуры
+    non_slash_commands_to_exclude.extend(["магазин", "пмагазин", "pshop"])
     non_slash_commands_to_exclude.sort(key=len, reverse=True)
 
     logger.info("Настройка цензуры.")
+    censor_module = censor_message_handler() # <<< ИСПРАВЛЕН ПУТЬ (импорт)
     censor_module.setup_censor_handlers(
         main_dp=dp,
         bad_words_file_path=BAD_WORDS_FILE,
@@ -171,13 +213,16 @@ async def main():
     logger.info("Создан групповой роутер.")
 
     logger.info("Включение stat_router.")
-    setup_stat_handlers(main_dp=group_text_router)
+    setup_stat_handlers(main_dp=group_text_router) # Эта функция из group_stat.py
+
+    # <<< ДОБАВЛЕНО: Регистрация роутера кнопок П-Магазина
+    group_text_router.include_router(plum_shop_router)
 
     logger.info("Включение RPG handlers.")
-    setup_rpg_handlers(main_dp=group_text_router)
+    setup_rpg_handlers(main_dp=group_text_router) # Эта функция из core/group/RPG/MAINrpg.py
 
     logger.info("Включение rp_router.")
-    setup_rp_handlers(
+    setup_rp_handlers( # Эта функция из rp_module_refactored.py
         main_dp=group_text_router,
         bot_instance=bot,
         profile_manager_instance=profile_manager,
@@ -235,7 +280,7 @@ async def main():
         rp_recovery_bg_task.cancel()
         daily_reset_task.cancel()
         try:
-            await asyncio.gather(jokes_bg_task, rp_recovery_bg_task, return_exceptions=True)
+            await asyncio.gather(jokes_bg_task, rp_recovery_bg_task, daily_reset_task, return_exceptions=True)
             logger.info("Фоновые задачи отменены.")
         except asyncio.CancelledError:
             logger.info("Фоновые задачи отменены.")

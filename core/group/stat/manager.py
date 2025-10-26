@@ -16,7 +16,7 @@ from aiogram import types, Bot
 
 from core.group.stat.config import ProfileConfig
 from core.group.stat.shop_config import ShopConfig
-from database import get_user_rp_stats, add_item_to_inventory, get_user_inventory
+from database import get_user_rp_stats, add_item_to_inventory, get_user_inventory, set_user_active_background
 logger = logging.getLogger(__name__)
 
 
@@ -70,11 +70,13 @@ class ProfileManager:
                 level INTEGER DEFAULT 1 CHECK(level >= 1 AND level <= 169),
                 exp INTEGER DEFAULT 0,
                 lumcoins INTEGER DEFAULT 0,
+                plumcoins INTEGER DEFAULT 0, -- <<< ДОБАВЛЕНО
                 daily_messages INTEGER DEFAULT 0,
                 total_messages INTEGER DEFAULT 0,
                 flames INTEGER DEFAULT 0,
                 last_work_time REAL DEFAULT 0,
                 active_background TEXT DEFAULT 'default',
+                last_activity_date TEXT,
                 FOREIGN KEY (user_id) REFERENCES users (user_id)
             )
         ''')
@@ -98,6 +100,14 @@ class ProfileManager:
             logger.debug("Adding last_activity_date column to user_profiles table.")
             await self._conn.execute('ALTER TABLE user_profiles ADD COLUMN last_activity_date TEXT')
         
+        # <<< ДОБАВЛЕНО: Миграция для plumcoins
+        try:
+            await self._conn.execute('SELECT plumcoins FROM user_profiles LIMIT 1')
+            logger.debug("Column plumcoins already exists in user_profiles table.")
+        except Exception:
+            logger.debug("Adding plumcoins column to user_profiles table.")
+            await self._conn.execute('ALTER TABLE user_profiles ADD COLUMN plumcoins INTEGER DEFAULT 0')
+        
         await self._conn.commit()
 
     async def get_user_profile(self, user: types.User) -> Optional[Dict[str, Any]]:
@@ -109,7 +119,7 @@ class ProfileManager:
         try:
             cursor = await self._conn.execute('''
                 SELECT 
-                    up.hp, up.level, up.exp, up.lumcoins, up.daily_messages, 
+                    up.hp, up.level, up.exp, up.lumcoins, up.plumcoins, up.daily_messages, -- <<< ИЗМЕНЕНО
                     up.total_messages, up.flames, up.last_work_time, up.active_background,
                     u.username, u.first_name, u.last_name
                 FROM user_profiles up
@@ -120,7 +130,7 @@ class ProfileManager:
             row = await cursor.fetchone()
             if row:
                 columns = [
-                    'hp', 'level', 'exp', 'lumcoins', 'daily_messages', 
+                    'hp', 'level', 'exp', 'lumcoins', 'plumcoins', 'daily_messages',  # <<< ИЗМЕНЕНО
                     'total_messages', 'flames', 'last_work_time', 'active_background',
                     'username', 'first_name', 'last_name'
                 ]
@@ -149,13 +159,13 @@ class ProfileManager:
 
         # Get current profile data
         cursor = await self._conn.execute(
-            'SELECT level, exp, lumcoins, daily_messages, total_messages, flames, last_activity_date FROM user_profiles WHERE user_id = ?',
+            'SELECT level, exp, lumcoins, plumcoins, daily_messages, total_messages, flames, last_activity_date FROM user_profiles WHERE user_id = ?', # <<< ИЗМЕНЕНО
             (user_id,)
         )
         profile_data = await cursor.fetchone()
 
         if profile_data:    
-            level, exp, lumcoins, daily_messages, total_messages, flames, last_activity_date = profile_data
+            level, exp, lumcoins, plumcoins, daily_messages, total_messages, flames, last_activity_date = profile_data # <<< ИЗМЕНЕНО
             
             # Reset daily messages and handle flames logic if it's a new day
             if last_activity_date != current_date:
@@ -199,27 +209,45 @@ class ProfileManager:
             # Обновляем профиль
             await self._conn.execute(
                 '''UPDATE user_profiles 
-                SET level = ?, exp = ?, lumcoins = ?, daily_messages = ?, total_messages = ?, flames = ?, last_activity_date = ?
-                WHERE user_id = ?''',
-                (level, exp, lumcoins, daily_messages, total_messages, flames, current_date, user_id)
+                SET level = ?, exp = ?, lumcoins = ?, plumcoins = ?, daily_messages = ?, total_messages = ?, flames = ?, last_activity_date = ?
+                WHERE user_id = ?''', # <<< ИЗМЕНЕНО
+                (level, exp, lumcoins, plumcoins, daily_messages, total_messages, flames, current_date, user_id) # <<< ИЗМЕНЕНО
             )
         else:
             # Создаем новый профиль
             await self._conn.execute(
                 '''INSERT INTO user_profiles 
-                (user_id, level, exp, lumcoins, daily_messages, total_messages, flames, last_work_time, active_background, last_activity_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                (user_id, 1, 0, 0, 1, 1, 1, 0, 'default', current_date)  # EXP начинается с 0
+                (user_id, level, exp, lumcoins, plumcoins, daily_messages, total_messages, flames, last_work_time, active_background, last_activity_date)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', # <<< ИЗМЕНЕНО
+                (user_id, 1, 0, 0, 0, 1, 1, 1, 0, 'default', current_date)  # <<< ИЗМЕНЕНО (добавлен plumcoins=0)
             )
         
         await self._conn.commit()
 
 
+    # <<< ДОБАВЛЕНО: Методы для PLUMcoins
+    async def update_plumcoins(self, user_id: int, amount: int) -> None:
+        """Обновляет баланс PLUMcoins пользователя. (amount может быть отрицательным)"""
+        if self._conn is None: 
+            raise RuntimeError("DB not connected")
+        # Используем MAX(0, ...) для предотвращения отрицательного баланса
+        await self._conn.execute('UPDATE user_profiles SET plumcoins = MAX(0, plumcoins + ?) WHERE user_id = ?', (amount, user_id))
+        await self._conn.commit()
+        logger.info(f"User {user_id} PLUMcoins updated by {amount}.")
+
+    async def get_plumcoins(self, user_id: int) -> int:
+        """Получает баланс PLUMcoins пользователя."""
+        if self._conn is None: 
+            raise RuntimeError("DB not connected")
+        cursor = await self._conn.execute('SELECT plumcoins FROM user_profiles WHERE user_id = ?', (user_id,))
+        result = await cursor.fetchone()
+        return result[0] if result else 0
+    # --- Конец методов PLUMcoins ---
 
     async def update_lumcoins(self, user_id: int, amount: int) -> None:
         if self._conn is None: 
             raise RuntimeError("DB not connected")
-        await self._conn.execute('UPDATE user_profiles SET lumcoins = lumcoins + ? WHERE user_id = ?', (amount, user_id))
+        await self._conn.execute('UPDATE user_profiles SET lumcoins = MAX(0, lumcoins + ?) WHERE user_id = ?', (amount, user_id))
         await self._conn.commit()
         logger.info(f"User {user_id} Lumcoins updated by {amount}.")
 
@@ -239,7 +267,9 @@ class ProfileManager:
         available_backgrounds = self.get_available_backgrounds()
         if background_key != 'default' and background_key not in available_backgrounds:
             logger.warning(f"Background '{background_key}' not found in available backgrounds.")
-            return
+            # Разрешаем установку кастомных фонов, даже если их нет в shop_config
+            if not background_key.startswith("custom:"):
+                return
         
         try:
             # Обновляем активный фон в базе профилей
@@ -336,7 +366,7 @@ class ProfileManager:
                                     if response.status == 200:
                                         image_data = await response.read()
                                         background_image = Image.open(BytesIO(image_data)).convert("RGBA")
-                                        logger.debug(f"Loaded customя background from URL: {custom_bg_url}")
+                                        logger.debug(f"Loaded custom background from URL: {custom_bg_url}")
                         except Exception as e:
                             logger.error(f"Error loading custom background: {e}")
             
@@ -423,7 +453,7 @@ class ProfileManager:
             font_stats_label = get_font(20)
             font_stats_value = get_font(22)
             font_level_exp = get_font(18)
-            font_hp_lum = get_font(22)
+            font_hp_lum = get_font(22) # Шрифт для HP, LUM, PLUM
 
             avatar_image = None
             
@@ -462,6 +492,7 @@ class ProfileManager:
             hp_current = profile_data.get('hp', 100)
             hp_max = ProfileConfig.MAX_HP
             lumcoins = profile_data.get('lumcoins', 0)
+            plumcoins = profile_data.get('plumcoins', 0) # <<< ДОБАВЛЕНО
 
             hp_text = f"HP: {hp_current}/{hp_max}"
             hp_x = ProfileConfig.AVATAR_X + ProfileConfig.AVATAR_SIZE + ProfileConfig.MARGIN // 2
@@ -471,10 +502,16 @@ class ProfileManager:
             lumcoins_text = f"LUM: {lumcoins}"
             lumcoins_y = hp_y + 30
             draw.text((hp_x, lumcoins_y), lumcoins_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp_lum, stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
+            
+            # <<< ДОБАВЛЕНО: Отрисовка PLUMcoins
+            plumcoins_text = f"PLUM: {plumcoins}"
+            plumcoins_y = lumcoins_y + 30
+            draw.text((hp_x, plumcoins_y), plumcoins_text, fill=ProfileConfig.TEXT_COLOR, font=font_hp_lum, stroke_width=1, stroke_fill=ProfileConfig.TEXT_SHADOW_COLOR)
+
 
             level = profile_data.get('level', 1)
             exp = profile_data.get('exp', 0)
-            exp_needed_for_next_level = 100
+            exp_needed_for_next_level = 100 # Заглушка, используйте вашу формулу
             exp_percentage = exp / exp_needed_for_next_level if exp_needed_for_next_level > 0 else 0
 
             exp_bar_x = ProfileConfig.MARGIN
@@ -501,7 +538,6 @@ class ProfileManager:
                 ("Сообщения (день):", profile_data.get('daily_messages', 0)),
                 ("Сообщения (всего):", profile_data.get('total_messages', 0)),
                 ("Пламя:", profile_data.get('flames', 0)),
-                # ("Lumcoins:", profile_data.get('lumcoins', 0))
             ]
 
             current_y = ProfileConfig.RIGHT_COLUMN_TOP_Y
@@ -553,15 +589,9 @@ class ProfileManager:
                 logger.info(f"Synced {len(profiles)} profiles with main database")
             except Exception as e:
                 logger.error(f"Error syncing profiles with main database: {e}")
-    # Оставьте эту функцию вне класса
-    async def set_user_active_background(user_id: int, background_key: str) -> None:
-        """Устанавливает активный фон для пользователя в основной базе данных."""
-        from database import set_user_active_background as set_bg_main_db
-        await set_bg_main_db(user_id, background_key)
-
-
-    async def set_user_active_background(user_id: int, background_key: str) -> None:
-        """Устанавливает активный фон для пользователя в основной базе данных."""
-        # Импортируем здесь, чтобы избежать циклического импорта
-        from database import set_user_active_background as set_bg_main_db
-        await set_bg_main_db(user_id, background_key)
+                
+    # Этот метод здесь избыточен, т.к. он уже импортирован из database
+    # async def set_user_active_background(user_id: int, background_key: str) -> None:
+    #     """Устанавливает активный фон для пользователя в основной базе данных."""
+    #     from database import set_user_active_background as set_bg_main_db
+    #     await set_bg_main_db(user_id, background_key)
