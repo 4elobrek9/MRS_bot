@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 # Роутер для обработки КНОПОК
 plum_shop_router = Router(name="plum_shop_router")
 
+# Текстовые команды для открытия магазина
+@plum_shop_router.message(F.text.lower().in_(["пмагазин", "pshop", "/пмагазин", "/pshop"]))
+async def handle_plum_shop(message: types.Message, profile_manager: ProfileManager):
+    """Обработчик текстовых команд для открытия П-Магазина"""
+    await cmd_plum_shop(message, profile_manager)
+
 # Функция для вызова из main.py
 async def cmd_plum_shop(message: types.Message, profile_manager: ProfileManager):
     """Показывает П-Магазин с товарами за PLUMcoins."""

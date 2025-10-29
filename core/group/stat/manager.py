@@ -110,6 +110,31 @@ class ProfileManager:
         
         await self._conn.commit()
 
+    async def ensure_user_profile_exists(self, user: types.User) -> None:
+        """Ensures a user profile exists in the database"""
+        if self._conn is None:
+            raise RuntimeError("DB not connected")
+
+        user_id = user.id
+        try:
+            # First ensure user exists in users table
+            await self._conn.execute('''
+                INSERT OR IGNORE INTO users (user_id, username, first_name)
+                VALUES (?, ?, ?)
+            ''', (user_id, user.username, user.first_name))
+
+            # Then ensure profile exists in user_profiles
+            await self._conn.execute('''
+                INSERT OR IGNORE INTO user_profiles (user_id)
+                VALUES (?)
+            ''', (user_id,))
+
+            await self._conn.commit()
+            logger.debug(f"Ensured user profile exists for user {user_id}")
+        except Exception as e:
+            logger.error(f"Error ensuring user profile exists for {user_id}: {e}")
+            raise
+
     async def get_user_profile(self, user: types.User) -> Optional[Dict[str, Any]]:
         if self._conn is None:
             logger.error("Profiles database connection is not established.")

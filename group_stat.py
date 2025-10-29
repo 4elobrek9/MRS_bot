@@ -21,8 +21,9 @@ from aiogram.utils.markdown import hlink, hbold, hcode
 from aiogram.enums import ParseMode # Добавлен импорт ParseMode
 from core.group.stat.config import WorkConfig, ProfileConfig
 
-# <<< ДОБАВЛЕНО: Импортируем новый роутер
-from core.group.stat.plum_shop_handlers import plum_shop_router 
+# Импортируем роутеры
+from core.group.stat.plum_shop_handlers import plum_shop_router
+from core.group.stat.quests_handlers import quests_router
 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,8 +32,9 @@ formatter = string.Formatter()
 
 stat_router = Router(name="stat_router")
 
-# <<< ДОБАВЛЕНО: Интегрируем роутер П-Магазина
+# Интегрируем роутеры
 stat_router.include_router(plum_shop_router)
+stat_router.include_router(quests_router)
 
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup

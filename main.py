@@ -16,6 +16,8 @@ from core.main.dec_command import *
 from core.group.stat.manager import ProfileManager
 from core.group.promo import setup_promo_handlers, handle_promo_command
 from core.group.casino import setup_casino_handlers, casino_main_menu
+from core.group.stat.plum_shop_handlers import cmd_plum_shop # Не импортируем plum_shop_router, он уже включен в stat_router
+from core.group.stat.quests_handlers import cmd_show_quests # Импортируем обработчик заданий
 from core.group.RPG import (
     setup_rpg_handlers, 
     initialize_on_startup,
@@ -137,6 +139,14 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Ошибка RPG: {e}")
 
+    logger.info("Инициализация системы заданий...")
+    try:
+        from core.group.stat.quests_handlers import ensure_quests_db
+        await ensure_quests_db()
+        logger.info("✅ Система заданий инициализирована")
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации заданий: {e}")
+
     logger.info("Инициализация стикеров.")
     sticker_manager_instance = StickerManager(cache_file_path=STICKERS_CACHE_FILE)
     await sticker_manager_instance.fetch_stickers(bot)
@@ -181,6 +191,10 @@ async def main():
         "рынок": (show_market, ["message", "profile_manager"]),
         "инвестировать": (show_investment, ["message", "profile_manager"]),
         "мои инвестиции": (show_my_investments, ["message", "profile_manager"]),
+        "пмагазин": (cmd_plum_shop, ["message", "profile_manager"]),
+        "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
+        "задания": (cmd_show_quests, ["message", "profile_manager"]),
+        "квесты": (cmd_show_quests, ["message", "profile_manager"]),
         
         # <<< ДОБАВЛЕНО: Обработка П-Магазина
         "пмагазин": (cmd_plum_shop, ["message", "profile_manager"]),
@@ -197,8 +211,7 @@ async def main():
     non_slash_commands_to_exclude.sort(key=len, reverse=True)
 
     logger.info("Настройка цензуры.")
-    censor_module = censor_message_handler() # <<< ИСПРАВЛЕН ПУТЬ (импорт)
-    censor_module.setup_censor_handlers(
+    setup_censor_handlers(
         main_dp=dp,
         bad_words_file_path=BAD_WORDS_FILE,
         non_slash_command_prefixes=non_slash_commands_to_exclude,
@@ -213,10 +226,7 @@ async def main():
     logger.info("Создан групповой роутер.")
 
     logger.info("Включение stat_router.")
-    setup_stat_handlers(main_dp=group_text_router) # Эта функция из group_stat.py
-
-    # <<< ДОБАВЛЕНО: Регистрация роутера кнопок П-Магазина
-    group_text_router.include_router(plum_shop_router)
+    setup_stat_handlers(main_dp=group_text_router) # Эта функция из group_stat.py включает plum_shop_router
 
     logger.info("Включение RPG handlers.")
     setup_rpg_handlers(main_dp=group_text_router) # Эта функция из core/group/RPG/MAINrpg.py

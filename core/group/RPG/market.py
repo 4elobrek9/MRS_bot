@@ -1,24 +1,34 @@
-from core.group.RPG.MAINrpg import *
+import logging
+from typing import Dict, List, Tuple
+import json
+import time
+
 from aiogram import Router, types, F, Bot
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
-import logging
-from typing import Dict, List, Tuple
-import random
-import time
-import json
-import aiosqlite
-import asyncio
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+
+# Import from core
 from core.group.stat.shop_config import ShopConfig
-from core.group.RPG.auction import *
-from core.group.RPG.crafttable import *
-from core.group.RPG.inventory import *
-from core.group.RPG.investment import *
-from core.group.RPG.item import *
-from core.group.RPG.market import *
-from core.group.RPG.trade import *
+
+# Import from our own package using relative imports
+from .MAINrpg import rpg_router
+from .item import ItemSystem
+from .rpg_utils import ensure_db_initialized
+from .inventory import get_user_lumcoins, get_user_inventory_db, remove_item_from_inventory
+from .market_db import (
+    get_market_listings, 
+    add_market_listing, 
+    remove_market_listing,
+    get_seller_listings
+)
+
+# Local logger
+logger = logging.getLogger(__name__)
+
+class MarketStates(StatesGroup):
+    waiting_for_price = State()
 @rpg_router.message(F.text.lower() == "рынок")
 async def show_market(message: types.Message, profile_manager):
     try:
@@ -208,6 +218,13 @@ async def handle_market_price_input(message: types.Message, state: FSMContext, p
             await state.clear()
             return
         
+        # Получаем данные о предмете
+        item_data = ItemSystem.SHOP_ITEMS.get(item_key) or ItemSystem.CRAFTED_ITEMS.get(item_key)
+        if not item_data:
+            await message.answer("❌ Ошибка: информация о предмете не найдена")
+            await state.clear()
+            return
+
         # Удаляем предмет из инвентаря
         success = await remove_item_from_inventory(user_id, item_key, 1)
         if not success:
@@ -215,16 +232,15 @@ async def handle_market_price_input(message: types.Message, state: FSMContext, p
             await state.clear()
             return
         
-        # Добавляем в listings
-        await ensure_db_initialized()
-        async with aiosqlite.connect('profiles.db') as conn:
-            await conn.execute('''
-                INSERT INTO market_listings (seller_id, item_key, item_data, price)
-                VALUES (?, ?, ?, ?)
-            ''', (user_id, item_key, json.dumps(item_data), price))
-            await conn.commit()
+        # Добавляем в market
+        success, result_message = await add_market_listing(user_id, item_key, item_data, price)
         
-        await message.answer(f"✅ {item_name} выставлен на рынок за {price} LUM!")
+        if success:
+            await remove_item_from_inventory(user_id, item_key, 1)
+            await message.answer(f"✅ {item_name} выставлен на рынок за {price} LUM!")
+        else:
+            await message.answer(result_message)
+        
         await state.clear()
         
     except Exception as e:
@@ -244,6 +260,58 @@ async def handle_market_refresh(callback: types.CallbackQuery, profile_manager):
 @rpg_router.callback_query(F.data == "market_back")
 async def handle_market_back(callback: types.CallbackQuery, profile_manager):
     await show_market(callback.message, profile_manager)
+    
+@rpg_router.callback_query(F.data == "market_my_listings")
+async def handle_my_listings(callback: types.CallbackQuery):
+    try:
+        user_id = callback.from_user.id
+        listings = await get_seller_listings(user_id)
+        
+        if not listings:
+            await callback.answer("У вас нет выставленных предметов на рынке")
+            return
+        
+        builder = InlineKeyboardBuilder()
+        text = "📦 **Ваши предметы на рынке:**\n\n"
+        
+        for listing in listings:
+            item_info = listing['item_data']
+            item_name = item_info.get('name', 'Неизвестный предмет')
+            
+            text += f"• {item_name}\n"
+            text += f"💰 Цена: {listing['price']} LUM\n\n"
+            
+            builder.row(InlineKeyboardButton(
+                text=f"❌ Убрать {item_name}",
+                callback_data=f"market_remove:{listing['id']}"
+            ))
+        
+        builder.row(InlineKeyboardButton(
+            text="↩️ Назад",
+            callback_data="market_back"
+        ))
+        
+        await callback.message.edit_text(text, reply_markup=builder.as_markup())
+        
+    except Exception as e:
+        logger.error(f"❌ Error in handle_my_listings: {e}")
+        await callback.answer("❌ Произошла ошибка")
+        
+@rpg_router.callback_query(F.data.startswith("market_remove:"))
+async def handle_remove_listing(callback: types.CallbackQuery):
+    try:
+        user_id = callback.from_user.id
+        listing_id = int(callback.data.split(":")[1])
+        
+        success, result_message = await remove_market_listing(listing_id, user_id)
+        await callback.answer(result_message)
+        
+        if success:
+            await handle_my_listings(callback)
+        
+    except Exception as e:
+        logger.error(f"❌ Error in handle_remove_listing: {e}")
+        await callback.answer("❌ Произошла ошибка")
 
 @rpg_router.message(F.text.lower() == "магазин")
 async def show_shop_main(message: types.Message, profile_manager):
