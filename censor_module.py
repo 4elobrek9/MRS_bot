@@ -161,9 +161,28 @@ async def censor_message_handler(message: types.Message, bot: Bot, state: FSMCon
 
     try:
         if GLOBAL_PROFILE_MANAGER:
-            await GLOBAL_PROFILE_MANAGER.record_message(message.from_user)
+            # Используем безопасный метод для записи сообщения
+            try:
+                await GLOBAL_PROFILE_MANAGER.record_message(message.from_user)
+            except Exception as e:
+                logger.warning(f"Could not record message for user {message.from_user.id}: {e}")
+                # Создаем пользователя если он не существует
+                await GLOBAL_PROFILE_MANAGER.create_user_if_not_exists(
+                    user_id=message.from_user.id,
+                    username=message.from_user.username,
+                    first_name=message.from_user.first_name
+                )
+            
+            # ОБНОВЛЯЕМ ЗАДАНИЯ СООБЩЕНИЙ
+            try:
+                from core.group.stat.quests_handlers import update_message_quests
+                await update_message_quests(user.id, 1, bot)
+            except Exception as e:
+                logger.error(f"Error updating message quests for user {user.id}: {e}")
     except Exception as e:
-        logger.error(f"Error recording message for user {message.from_user.id}: {e}")
+        logger.error(f"Error in message processing for user {message.from_user.id}: {e}")
+
+
 
 
     # Пропускаем сообщения, начинающиеся с "/" (команды)

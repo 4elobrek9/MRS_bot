@@ -6,7 +6,7 @@ from aiogram import Router, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from core.group.stat.manager import ProfileManager
-
+from core.group.stat.quests_handlers import update_casino_quests
 logger = logging.getLogger(__name__)
 
 casino_router = Router(name="casino_router")
@@ -632,6 +632,20 @@ async def slots_bet_handler(callback: types.CallbackQuery, profile_manager: Prof
     # Получаем результат
     result = await CasinoGames.play_slots(bet_amount, user_id)
     
+    # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - исправленная версия
+    try:
+        from core.group.stat.quests_handlers import update_casino_quests
+        await update_casino_quests(
+            user_id, 
+            "slots", 
+            result["won"], 
+            result.get("win_amount", 0), 
+            callback.bot
+        )
+        logger.info(f"✅ Обновлены задания казино (слоты) для пользователя {user_id}, выигрыш: {result['won']}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления заданий казино: {e}")
+    
     if result["won"]:
         await profile_manager.update_lumcoins(user_id, result["win_amount"])
         new_balance = await profile_manager.get_lumcoins(user_id)
@@ -662,51 +676,7 @@ async def slots_bet_handler(callback: types.CallbackQuery, profile_manager: Prof
     await safe_send_message(callback.bot, callback.message.chat.id, result_text, keyboard)
     await safe_answer_callback(callback)
 
-# Обработчики для рулетки
-@casino_router.callback_query(F.data.startswith("roulette_bet_"))
-async def roulette_bet_handler(callback: types.CallbackQuery, profile_manager: ProfileManager):
-    """Обработчик выбора ставки для рулетки"""
-    user_id = callback.from_user.id
-    data_parts = callback.data.split("_")
-    
-    if len(data_parts) < 4:
-        await safe_answer_callback(callback, "❌ Ошибка в данных!")
-        return
-    
-    bet_amount = int(data_parts[2])
-    callback_user_id = int(data_parts[3])
-    
-    if user_id != callback_user_id:
-        await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
-        return
-    
-    balance = await profile_manager.get_lumcoins(user_id)
-    if balance < bet_amount:
-        await safe_answer_callback(callback, "❌ Недостаточно Lumcoins!")
-        return
-    
-    keyboard = InlineKeyboardBuilder()
-    keyboard.row(
-        InlineKeyboardButton(text="🔴 Красное", callback_data=f'roulette_type_red_{bet_amount}_{user_id}'),
-        InlineKeyboardButton(text="⚫ Черное", callback_data=f'roulette_type_black_{bet_amount}_{user_id}')
-    )
-    keyboard.row(
-        InlineKeyboardButton(text="🟢 Зеро", callback_data=f'roulette_type_green_{bet_amount}_{user_id}'),
-        InlineKeyboardButton(text="1-12", callback_data=f'roulette_type_1-12_{bet_amount}_{user_id}')
-    )
-    keyboard.row(
-        InlineKeyboardButton(text="13-24", callback_data=f'roulette_type_13-24_{bet_amount}_{user_id}'),
-        InlineKeyboardButton(text="25-36", callback_data=f'roulette_type_25-36_{bet_amount}_{user_id}')
-    )
-    keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_choose_game_roulette"))
-    
-    await callback.message.edit_text(
-        f"🎡 **Рулетка** 🎡\n\n"
-        f"💰 Ваша ставка: {bet_amount} LUM\n\n"
-        f"Выберите тип ставки:",
-        reply_markup=keyboard.as_markup()
-    )
-    await safe_answer_callback(callback)
+
 
 @casino_router.callback_query(F.data.startswith("roulette_type_"))
 async def roulette_type_handler(callback: types.CallbackQuery, profile_manager: ProfileManager):
@@ -738,6 +708,20 @@ async def roulette_type_handler(callback: types.CallbackQuery, profile_manager: 
     
     # Получаем результат
     result = await CasinoGames.play_roulette(bet_amount, choice, user_id)
+    
+    # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - исправленная версия
+    try:
+        from core.group.stat.quests_handlers import update_casino_quests
+        await update_casino_quests(
+            user_id, 
+            "roulette", 
+            result["won"], 
+            result.get("win_amount", 0), 
+            callback.bot
+        )
+        logger.info(f"✅ Обновлены задания казино (рулетка) для пользователя {user_id}, выигрыш: {result['won']}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления заданий казино: {e}")
     
     def get_color_emoji(number):
         if number == 0:
@@ -775,7 +759,7 @@ async def roulette_type_handler(callback: types.CallbackQuery, profile_manager: 
     await safe_send_message(callback.bot, callback.message.chat.id, result_text, keyboard)
     await safe_answer_callback(callback)
 
-# Обработчики для блэкджека
+
 @casino_router.callback_query(F.data.startswith("blackjack_bet_"))
 async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: ProfileManager):
     """Обработчик выбора ставки для блэкджека"""
@@ -808,6 +792,14 @@ async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: 
     # Начинаем игру
     result = await CasinoGames.play_blackjack(bet_amount, user_id, "start")
     
+    # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - начало игры
+    try:
+        from core.group.stat.quests_handlers import update_casino_quests
+        await update_casino_quests(user_id, "blackjack", False, 0, callback.bot)
+        logger.info(f"✅ Обновлены задания казино (блэкджек начало) для пользователя {user_id}")
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления заданий казино: {e}")
+    
     if result["state"] == "playing":
         keyboard = InlineKeyboardBuilder()
         keyboard.row(
@@ -832,28 +824,14 @@ async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: 
         if user_id in active_blackjack_sessions and new_message:
             active_blackjack_sessions[user_id]['message_id'] = new_message.message_id
     else:
-        if result["result"] == "blackjack":
-            await profile_manager.update_lumcoins(user_id, result["win_amount"])
-        
-        new_balance = await profile_manager.get_lumcoins(user_id)
-        
-        response_text = (
-            f"🃏 **БЛЭКДЖЕК** 🃏\n\n"
-            f"👤 Ваши карты: {' '.join(str(card) for card in result['player_hand'])}\n"
-            f"💎 Ваши очки: {result['player_score']}\n\n"
-            f"🎭 Карты дилера: {' '.join(str(card) for card in result['dealer_hand'])}\n"
-            f"💎 Очки дилера: {result['dealer_score']}\n\n"
-            f"{result['message']}\n"
-            f"💰 Новый баланс: {new_balance} LUM"
-        )
-        
-        keyboard = InlineKeyboardBuilder().add(
-            InlineKeyboardButton(text="🃏 Новая игра", callback_data="casino_choose_game_blackjack"),
-            InlineKeyboardButton(text="🔙 В меню", callback_data="casino_back_to_main")
-        ).as_markup()
-        
-        # Отправляем результат как новое сообщение
-        await safe_send_message(callback.bot, callback.message.chat.id, response_text, keyboard)
+        # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - результат игры
+        won = result.get("result") in ["win", "blackjack"]
+        win_amount = result.get("win_amount", 0)
+        try:
+            await update_casino_quests(user_id, "blackjack", won, win_amount, callback.bot)
+            logger.info(f"✅ Обновлены задания казино (блэкджек результат) для пользователя {user_id}, выигрыш: {won}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления заданий казино: {e}")
     
     await safe_answer_callback(callback)
 
@@ -899,6 +877,11 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
             # Отправляем новое сообщение
             await safe_send_message(callback.bot, callback.message.chat.id, response_text, keyboard.as_markup())
         else:
+            # ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - результат игры
+            won = result.get("result") in ["win", "blackjack"]
+            win_amount = result.get("win_amount", 0)
+            await update_casino_quests(user_id, "blackjack", won, win_amount, callback.bot)
+            
             if result["state"] == "finished" and result["win_amount"] > 0:
                 await profile_manager.update_lumcoins(user_id, result["win_amount"])
             elif result["state"] == "surrender":
@@ -934,7 +917,7 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
         await safe_answer_callback(callback)
     else:
         await safe_answer_callback(callback, "❌ Неизвестное состояние игры!")
-
+    
 # Информационные обработчики
 @casino_router.callback_query(F.data == "casino_info_main")
 async def casino_info_main(callback: types.CallbackQuery):

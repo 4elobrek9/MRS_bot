@@ -61,13 +61,13 @@ async def handle_rp_action(
     profile_manager: ProfileManager,
     action_name: str,
     target_user: Optional[types.User] = None,
-    custom_text: Optional[str] = None # New parameter for additional text
+    custom_text: Optional[str] = None
 ):
     """
     Handles an RP action, updates participants' HP, and sends a message.
     """
     sender_id = message.from_user.id
-    sender_name = html.escape(get_user_display_name(message.from_user)) # Escape sender's name
+    sender_name = html.escape(get_user_display_name(message.from_user))
     action_data = RPActions.ALL_ACTION_DATA.get(action_name.lower())
 
     if not action_data:
@@ -77,7 +77,6 @@ async def handle_rp_action(
 
     hp_change_sender = action_data.get("hp_change_sender", 0)
     hp_change_target = action_data.get("hp_change_target", 0)
-    # Получаем глагол в нужной форме, если его нет - используем название команды
     action_verb = action_data.get("verb", action_name)
 
     # Check if sender is knocked out
@@ -89,22 +88,18 @@ async def handle_rp_action(
     new_sender_hp, sender_knocked_out = await _update_user_hp(profile_manager, sender_id, hp_change_sender)
 
     if target_user:
-        # =================================================================
-        # CHANGE: Prohibit RP actions on bots
-        # =================================================================
         if target_user.is_bot:
             await message.reply("🤖 РП-действия на ботов запрещены.")
             return
-        # =================================================================
 
         if target_user.id == sender_id:
             await message.reply("🚫 Вы не можете совершать RP-действия на самого себя.")
             return
 
         target_id = target_user.id
-        target_name = html.escape(get_user_display_name(target_user)) # Escape target's name
+        target_name = html.escape(get_user_display_name(target_user))
 
-        # Check if target is knocked out (if it's not a self-action)
+        # Check if target is knocked out
         if await is_user_knocked_out(profile_manager, target_id, bot, message):
             logger.info(f"Target {target_id} is knocked out. Cannot perform RP action on them.")
             return
@@ -112,12 +107,10 @@ async def handle_rp_action(
         # Update target's HP
         new_target_hp, target_knocked_out = await _update_user_hp(profile_manager, target_id, hp_change_target)
 
-        # Formulate action message with new formatting
+        # Формируем сообщение
         escaped_custom_text = html.escape(custom_text) if custom_text else ""
-        
-        # Используем action_verb вместо action_name
         action_message = f"{sender_name} {html.escape(action_verb)} {target_name}"
-        if escaped_custom_text: # Add additional text if present
+        if escaped_custom_text:
             action_message += f" {escaped_custom_text}"
         
         action_message += f"\n({target_name} {hp_change_target:+d} HP, {sender_name} {hp_change_sender:+d} HP)"
@@ -130,27 +123,55 @@ async def handle_rp_action(
         if sender_knocked_out:
             action_message += f"\n😩 {sender_name} нокаутирован(а)! Вы не можете совершать действия {RPConfig.HP_RECOVERY_TIME_SECONDS // 60} минут."
 
-        await message.answer(action_message, parse_mode=ParseMode.HTML) # Specify parse_mode
+        await message.answer(action_message, parse_mode=ParseMode.HTML)
         logger.info(f"RP Action '{action_name}' performed by {sender_id} on {target_id}. Sender HP: {new_sender_hp}, Target HP: {new_target_hp}.")
-    else:
-        # Action without a target (e.g., "laugh")
-        escaped_custom_text = html.escape(custom_text) if custom_text else ""
 
-        # Используем action_verb вместо action_name
+        # ✅ ДОБАВЛЕНО: Обновляем задания для RP-действий
+        try:
+            from core.group.stat.quests_handlers import update_rp_quests
+            # Определяем, является ли действие уникальным (обнять, погладить и т.д.)
+            is_unique_action = action_name.lower() in ['обнять', 'погладить', 'поцеловать', 'укусить', 'лизнуть']
+            await update_rp_quests(
+                user_id=sender_id,
+                action_type='rp',
+                unique_action=is_unique_action,
+                bot=bot
+            )
+            logger.info(f"✅ Обновлены задания RP для пользователя {sender_id}, действие: {action_name}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления RP заданий: {e}")
+
+    else:
+        # Action without a target
+        escaped_custom_text = html.escape(custom_text) if custom_text else ""
         action_message = f"{sender_name} {html.escape(action_verb)}"
-        if escaped_custom_text: # Add additional text if present
+        if escaped_custom_text:
             action_message += f" {escaped_custom_text}"
         action_message += f"\n(HP {sender_name}: {new_sender_hp}/{RPConfig.MAX_HP})"
         if sender_knocked_out:
             action_message += f"\n😩 {sender_name} нокаутирован(а)! Вы не можете совершать действия {RPConfig.HP_RECOVERY_TIME_SECONDS // 60} минут."
-        await message.answer(action_message, parse_mode=ParseMode.HTML) # Specify parse_mode
+        await message.answer(action_message, parse_mode=ParseMode.HTML)
         logger.info(f"RP Action '{action_name}' performed by {sender_id}. Sender HP: {new_sender_hp}.")
+
+        # ✅ ДОБАВЛЕНО: Обновляем задания для RP-действий без цели
+        try:
+            from core.group.stat.quests_handlers import update_rp_quests
+            await update_rp_quests(
+                user_id=sender_id,
+                action_type='rp',
+                unique_action=False,
+                bot=bot
+            )
+            logger.info(f"✅ Обновлены задания RP для пользователя {sender_id}, действие без цели: {action_name}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления RP заданий: {e}")
 
     # Delete original message if it wasn't a slash command
     if message.text and not message.text.startswith('/'):
         with suppress(TelegramAPIError):
             await message.delete()
             logger.info(f"Original message {message.message_id} deleted after RP action.")
+
 
 
 @rp_router.message(Command("hp", "хп", "моехп", "моёхп", "здоровье", "мое здоровье", "моё здоровье"))

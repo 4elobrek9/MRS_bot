@@ -32,6 +32,17 @@ from core.group.RPG import (
 )
 from core.group.RPG.investment import show_sell_menu
 from core.group.RP.actions import RPActions
+from core.group.stat.quests_handlers import (
+    ensure_quests_db, 
+    update_message_quests,
+    update_casino_quests,
+    update_work_quests,
+    update_exp_quests,
+    update_market_quests,
+    update_rp_quests,
+    update_crafting_quests,
+    update_activity_quests
+)
 
 # --- Импорты из КОРНЯ проекта ---
 from group_stat import (
@@ -131,6 +142,13 @@ async def main():
 
     logger.info("Проверка миграции...")
     await migrate_inventory_table()
+
+    logger.info("Инициализация системы заданий...")
+    try:
+        await ensure_quests_db()
+        logger.info("✅ Система заданий инициализирована")
+    except Exception as e:
+        logger.error(f"❌ Ошибка инициализации заданий: {e}")
 
     logger.info("Инициализация RPG...")
     try:
