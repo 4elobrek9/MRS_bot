@@ -5,7 +5,7 @@ from core.group.stat.shop_config import *
 import string # Добавлен импорт string
 import time # Добавлен импорт time
 import random # Добавлен импорт random
-from database import add_item_to_inventory, set_user_active_background, get_user_rp_stats, update_user_rp_stats
+from database import add_item_to_inventory, set_user_active_background, get_user_rp_stats, update_user_rp_stats, DB_PATH
 import asyncio  # Добавьте эту строку в начале файла
 import aiosqlite  # Убедитесь, что этот импорт тоже есть
 from aiogram.fsm.context import FSMContext
@@ -521,13 +521,14 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     Создает записи, если их нет.
     """
     # Подключение к основной БД бота
+    main_db_conn = None
     try:
         main_db_conn = await aiosqlite.connect(DB_PATH) # Используем DB_PATH из database.py
-        
+
         # Проверяем существование таблицы users
         cursor = await main_db_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
         table_exists = await cursor.fetchone()
-        
+
         if not table_exists:
             # Если таблицы нет, создаем её (это должно быть в initialize_database, но для надежности)
             await main_db_conn.execute('''
@@ -539,7 +540,7 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
                 )
             ''')
             await main_db_conn.commit()
-            
+
         # Остальной код без изменений
         await main_db_conn.execute('''
             INSERT INTO users (user_id, username, first_name, last_active_ts)
@@ -549,7 +550,7 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
                 first_name = excluded.first_name,
                 last_active_ts = excluded.last_active_ts
         ''', (user_id, username, first_name, time.time()))
-        
+
         # Убедимся, что таблицы user_modes и rp_user_stats существуют
         await main_db_conn.execute('''
             CREATE TABLE IF NOT EXISTS user_modes (

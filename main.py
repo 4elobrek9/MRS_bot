@@ -19,7 +19,7 @@ from core.group.casino import setup_casino_handlers, casino_main_menu
 from core.group.stat.plum_shop_handlers import cmd_plum_shop # Не импортируем plum_shop_router, он уже включен в stat_router
 from core.group.stat.quests_handlers import cmd_show_quests # Импортируем обработчик заданий
 from core.group.RPG import (
-    setup_rpg_handlers, 
+    setup_rpg_handlers,
     initialize_on_startup,
     show_inventory,
     show_workbench_cmd,
@@ -33,7 +33,7 @@ from core.group.RPG import (
 from core.group.RPG.investment import show_sell_menu
 from core.group.RP.actions import RPActions
 from core.group.stat.quests_handlers import (
-    ensure_quests_db, 
+    ensure_quests_db,
     update_message_quests,
     update_casino_quests,
     update_work_quests,
@@ -46,19 +46,19 @@ from core.group.stat.quests_handlers import (
 
 # --- Импорты из КОРНЯ проекта ---
 from group_stat import (
-    show_profile, 
-    do_work, 
+    show_profile,
+    do_work,
     show_shop, # Это магазин ФОНОВ (из group_stat.py)
-    show_top, 
-    manage_censor, 
+    show_top,
+    manage_censor,
     heal_hp,
     give_lumcoins,
     check_transfer_status,
     setup_stat_handlers # Важно для регистрации кнопок
 )
 from rp_module_refactored import (
-    cmd_check_self_hp, 
-    cmd_show_rp_actions_list, 
+    cmd_check_self_hp,
+    cmd_show_rp_actions_list,
     handle_rp_action_via_text,
     setup_rp_handlers
 )
@@ -75,7 +75,6 @@ from censor_module import * # <<< ИСПРАВЛЕН ПУТЬ
 # <<< ДОБАВЛЕНО: Импорт для П-Магазина
 from core.group.stat.plum_shop_handlers import cmd_plum_shop, plum_shop_router
 
-
 logger = logging.getLogger(__name__)
 
 # --- Константы ---
@@ -84,7 +83,6 @@ STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 
 dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
 
-
 async def migrate_inventory_table():
     try:
         import aiosqlite
@@ -92,10 +90,10 @@ async def migrate_inventory_table():
             cursor = await conn.execute("PRAGMA table_info(user_inventory)")
             columns = await cursor.fetchall()
             column_names = [column[1] for column in columns]
-            
+
             if 'quantity' not in column_names:
                 logger.info("Добавляем столбец quantity")
-                
+
                 await conn.execute('''
                     CREATE TABLE IF NOT EXISTS user_inventory_new (
                         user_id INTEGER,
@@ -107,21 +105,21 @@ async def migrate_inventory_table():
                         PRIMARY KEY (user_id, item_key)
                     )
                 ''')
-                
+
                 await conn.execute('''
                     INSERT INTO user_inventory_new (user_id, item_key, item_type, quantity, item_data, acquired_at)
-                    SELECT user_id, item_key, item_type, 1, item_data, acquired_at 
+                    SELECT user_id, item_key, item_type, 1, item_data, acquired_at
                     FROM user_inventory
                 ''')
-                
+
                 await conn.execute('DROP TABLE user_inventory')
                 await conn.execute('ALTER TABLE user_inventory_new RENAME TO user_inventory')
-                
+
                 await conn.commit()
                 logger.info("✅ Миграция завершена")
             else:
                 logger.info("✅ Таблица уже имеет quantity")
-                
+
     except Exception as e:
         logger.error(f"❌ Ошибка миграции: {e}")
 
@@ -201,7 +199,7 @@ async def main():
         "трансфер": (check_transfer_status, ["message"]),
         "казино": (casino_main_menu, ["message", "profile_manager"]),
         "инвентарь": (show_inventory, ["message", "profile_manager"]),
-        "верстак": (show_workbench_cmd, ["message", "profile_manager"]), 
+        "верстак": (show_workbench_cmd, ["message", "profile_manager"]),
         "магазин": (show_shop, ["message", "profile_manager"]), # Магазин ФОНОВ
         "продать": (show_sell_menu, ["message", "profile_manager"]),
         "обмен": (start_trade, ["message", "profile_manager"]),
@@ -213,7 +211,7 @@ async def main():
         "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
         "задания": (cmd_show_quests, ["message", "profile_manager"]),
         "квесты": (cmd_show_quests, ["message", "profile_manager"]),
-        
+
         # <<< ДОБАВЛЕНО: Обработка П-Магазина
         "пмагазин": (cmd_plum_shop, ["message", "profile_manager"]),
         "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
@@ -312,7 +310,7 @@ async def main():
             logger.info("Фоновые задачи отменены.")
         except asyncio.CancelledError:
             logger.info("Фоновые задачи отменены.")
-        
+
         await profile_manager.close()
         logger.info("ProfileManager закрыт.")
 

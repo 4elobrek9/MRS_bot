@@ -20,14 +20,14 @@ active_blackjack_sessions = {}
 class Card:
     suits = ['♥', '♦', '♣', '♠']
     values = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
-    
+
     def __init__(self, suit, value):
         self.suit = suit
         self.value = value
-    
+
     def __str__(self):
         return f'{self.suit}{self.value}'
-    
+
     def score(self):
         if self.value in ['J', 'Q', 'K']:
             return 10
@@ -39,14 +39,14 @@ class Deck:
     def __init__(self):
         self.cards = [Card(s, v) for s in Card.suits for v in Card.values]
         random.shuffle(self.cards)
-    
+
     def deal(self):
         return self.cards.pop() if self.cards else None
 
 def calculate_score(hand):
     score = sum(card.score() for card in hand)
     aces = sum(1 for card in hand if card.value == 'A')
-    
+
     while score > 21 and aces:
         score -= 10
         aces -= 1
@@ -56,34 +56,36 @@ def get_adjusted_probability(base_probability: float, user_id: int, game_type: s
     """Рассчитывает скорректированную вероятность с учетом статистики пользователя"""
     win_streak = user_win_streaks.get(user_id, 0)
     loss_streak = user_loss_streaks.get(f"{user_id}_{game_type}", 0)
-    
+
     # Гарантированная победа после 7 проигрышей подряд
     if loss_streak >= 7:
         logger.info(f"User {user_id} gets guaranteed win after {loss_streak} losses in {game_type}")
         return 1.0
-    
+
     # Уменьшение шансов после каждой победы
     win_modifier = 0.9 ** win_streak
-    
+
     adjusted_prob = base_probability * win_modifier
     return max(0.05, min(0.95, adjusted_prob))
 
 def should_user_win(adjusted_probability: float) -> bool:
-    return random.random() < adjusted_probability
+    result = random.random() < adjusted_probability
+    logger.info(f"should_user_win: adjusted_prob={adjusted_probability:.3f}, result={result}")
+    return result
 
 class CasinoGames:
     """Класс для игр казино"""
-    
+
     @staticmethod
     async def play_slots(bet: int, user_id: int) -> Dict[str, Any]:
         """Игра в слоты с системой шансов"""
         symbols = ["🍒", "🍋", "🍊", "🍇", "🔔", "💎", "7️⃣"]
-        
+
         # Базовая вероятность выигрыша для слотов
         base_probability = 0.4
         adjusted_probability = get_adjusted_probability(base_probability, user_id, "slots")
         should_win = should_user_win(adjusted_probability)
-        
+
         if should_win:
             # Генерация выигрышной комбинации
             win_types = [
@@ -92,12 +94,12 @@ class CasinoGames:
                 {"type": "three_seven", "multiplier": 5, "prob": 0.05},
                 {"type": "three_diamond", "multiplier": 10, "prob": 0.05}
             ]
-            
+
             win_type = random.choices(
                 [wt["type"] for wt in win_types],
                 [wt["prob"] for wt in win_types]
             )[0]
-            
+
             if win_type == "two_equal":
                 symbol1 = random.choice(symbols)
                 symbol2 = symbol1
@@ -115,13 +117,13 @@ class CasinoGames:
                     symbol = random.choice([s for s in symbols if s not in ["7️⃣", "💎"]])
                     multiplier = 3
                 result = [symbol, symbol, symbol]
-            
+
             win_amount = bet * multiplier
-            
+
             # Обновляем статистику
             user_win_streaks[user_id] = user_win_streaks.get(user_id, 0) + 1
             user_loss_streaks[f"{user_id}_slots"] = 0
-            
+
             return {
                 "won": True,
                 "result": " ".join(result),
@@ -135,30 +137,30 @@ class CasinoGames:
                 # Проверяем, что это действительно проигрышная комбинация
                 if (result[0] != result[1] and result[1] != result[2] and result[0] != result[2]):
                     break
-            
+
             # Обновляем статистику
             user_win_streaks[user_id] = 0
             user_loss_streaks[f"{user_id}_slots"] = user_loss_streaks.get(f"{user_id}_slots", 0) + 1
-            
+
             return {
                 "won": False,
                 "result": " ".join(result),
                 "win_amount": 0
             }
-    
+
     @staticmethod
     async def play_roulette(bet: int, choice: str, user_id: int) -> Dict[str, Any]:
         """Игра в рулетку с системой шансов"""
         # Последовательность чисел в рулетке (европейская)
         roulette_sequence = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
-        
+
         # Определяем цвета для чисел
         def get_color(number):
             if number == 0:
                 return "green"
             red_numbers = [32, 19, 21, 25, 34, 27, 36, 30, 23, 5, 16, 1, 14, 9, 18, 7, 12, 3]
             return "red" if number in red_numbers else "black"
-        
+
         # Базовая вероятность в зависимости от типа ставки
         if choice in ["red", "black"]:
             base_probability = 18/37
@@ -172,12 +174,12 @@ class CasinoGames:
                 base_probability = 1/37
             except ValueError:
                 base_probability = 1/37
-        
+
         adjusted_probability = get_adjusted_probability(base_probability, user_id, "roulette")
         should_win = should_user_win(adjusted_probability)
-        
+
         logger.info(f"Roulette - User {user_id}: choice={choice}, base_prob={base_probability:.3f}, adjusted_prob={adjusted_probability:.3f}, should_win={should_win}")
-        
+
         # Выбираем результат с учетом скорректированной вероятности
         if should_win:
             if choice in ["red", "black"]:
@@ -213,13 +215,13 @@ class CasinoGames:
                     result = random.choice([n for n in roulette_sequence if n != int(choice)])
                 except ValueError:
                     result = random.choice([n for n in roulette_sequence if n != 0])
-        
+
         color = get_color(result)
-        
+
         # Проверка выигрыша
         won = False
         multiplier = 1
-        
+
         if choice == "red" and color == "red":
             won = True
             multiplier = 2
@@ -246,14 +248,28 @@ class CasinoGames:
                     multiplier = 35
             except ValueError:
                 won = False
-        
+
         if won:
             user_win_streaks[user_id] = user_win_streaks.get(user_id, 0) + 1
             user_loss_streaks[f"{user_id}_roulette"] = 0
         else:
             user_win_streaks[user_id] = 0
             user_loss_streaks[f"{user_id}_roulette"] = user_loss_streaks.get(f"{user_id}_roulette", 0) + 1
-        
+
+        # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - исправленная версия
+        try:
+            from core.group.stat.quests_handlers import update_casino_quests
+            await update_casino_quests(
+                user_id,
+                "roulette",
+                won,
+                bet * multiplier if won else 0,
+                None  # Передаем None вместо бота, так как он уже есть в контексте
+            )
+            logger.info(f"✅ Обновлены задания казино (рулетка) для пользователя {user_id}, выигрыш: {won}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка обновления заданий казино: {e}")
+
         return {
             "won": won,
             "result": result,
@@ -267,15 +283,15 @@ class CasinoGames:
         """Игра в блэкджек с пошаговой раздачей карт"""
         if user_id not in blackjack_games or action == "start":
             deck = Deck()
-            
+
             player_hand = []
             dealer_hand = []
-            
+
             player_hand.append(deck.deal())
             dealer_hand.append(deck.deal())
             player_hand.append(deck.deal())
             dealer_hand.append(deck.deal())
-            
+
             blackjack_games[user_id] = {
                 'deck': deck,
                 'player_hand': player_hand,
@@ -283,19 +299,19 @@ class CasinoGames:
                 'bet': bet,
                 'state': 'playing'
             }
-            
+
             active_blackjack_sessions[user_id] = {
                 'message_id': None,
                 'bet': bet
             }
-            
+
             player_score = calculate_score(player_hand)
             dealer_score = calculate_score([dealer_hand[0]])
-            
+
             if player_score == 21:
                 blackjack_games[user_id]['state'] = 'blackjack'
                 return await CasinoGames.finish_blackjack(user_id, bet, player_hand, dealer_hand)
-            
+
             return {
                 "state": "playing",
                 "player_hand": player_hand,
@@ -304,17 +320,17 @@ class CasinoGames:
                 "dealer_score": dealer_score,
                 "message": "Карты разданы! Ваш ход!"
             }
-        
+
         game = blackjack_games[user_id]
-        
+
         if action == "hit":
             new_card = game['deck'].deal()
             game['player_hand'].append(new_card)
             player_score = calculate_score(game['player_hand'])
-            
+
             if player_score > 21:
                 return await CasinoGames.finish_blackjack(user_id, game['bet'], game['player_hand'], game['dealer_hand'])
-            
+
             return {
                 "state": "playing",
                 "player_hand": game['player_hand'],
@@ -323,18 +339,18 @@ class CasinoGames:
                 "dealer_score": calculate_score([game['dealer_hand'][0]]),
                 "message": f"Вы взяли карту: {new_card}! Выберите следующее действие:"
             }
-        
+
         elif action == "stand":
             dealer_score = calculate_score(game['dealer_hand'])
             dealer_cards = game['dealer_hand']
-            
+
             while dealer_score < 17:
                 new_card = game['deck'].deal()
                 dealer_cards.append(new_card)
                 dealer_score = calculate_score(dealer_cards)
-            
+
             return await CasinoGames.finish_blackjack(user_id, game['bet'], game['player_hand'], dealer_cards)
-        
+
         elif action == "surrender":
             if user_id in blackjack_games:
                 del blackjack_games[user_id]
@@ -351,7 +367,7 @@ class CasinoGames:
         """Завершение игры в блэкджек и определение результата"""
         player_score = calculate_score(player_hand)
         dealer_score = calculate_score(dealer_hand)
-        
+
         if player_score > 21:
             result = "lose"
             win_amount = 0
@@ -380,12 +396,12 @@ class CasinoGames:
             win_amount = 0
             user_win_streaks[user_id] = 0
             user_loss_streaks[f"{user_id}_blackjack"] = user_loss_streaks.get(f"{user_id}_blackjack", 0) + 1
-        
+
         if user_id in blackjack_games:
             del blackjack_games[user_id]
         if user_id in active_blackjack_sessions:
             del active_blackjack_sessions[user_id]
-        
+
         return {
             "state": "finished",
             "result": result,
@@ -435,33 +451,33 @@ async def safe_answer_callback(callback: types.CallbackQuery, text: str = None, 
 async def simple_roulette_animation(bot, chat_id: int, message_thread_id: int = None):
     """Простая анимация рулетки"""
     roulette_sequence = [0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14, 31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26]
-    
+
     def get_color_emoji(number):
         if number == 0:
             return "🟢"
         red_numbers = [32, 19, 21, 25, 34, 27, 36, 30, 23, 5, 16, 1, 14, 9, 18, 7, 12, 3]
         return "🔴" if number in red_numbers else "⚫"
-    
+
     # Отправляем анимацию как новое сообщение
     start_idx = random.randint(0, len(roulette_sequence) - 3)
     showing_numbers = roulette_sequence[start_idx:start_idx + 3]
     animation_text = f"🎡 **Крутится рулетка...** 🎡\n\n" + " → ".join(f"{get_color_emoji(n)}{n}" for n in showing_numbers)
-    
+
     anim_message = await safe_send_message(bot, chat_id, animation_text, reply_to_message_id=message_thread_id)
     await asyncio.sleep(1.5)
-    
+
     return anim_message
 
 async def simple_slots_animation(bot, chat_id: int, message_thread_id: int = None):
     """Простая анимация слотов"""
     symbols = ["🍒", "🍋", "🍊", "🍇", "🔔", "💎", "7️⃣"]
-    
+
     slot_display = [random.choice(symbols) for _ in range(3)]
     animation_text = f"🎰 **Крутятся слоты...** 🎰\n\n" + " | ".join(slot_display)
-    
+
     anim_message = await safe_send_message(bot, chat_id, animation_text, reply_to_message_id=message_thread_id)
     await asyncio.sleep(1.5)
-    
+
     return anim_message
 
 # Главное меню казино
@@ -470,10 +486,10 @@ async def casino_main_menu(message: types.Message, profile_manager: ProfileManag
     """Главное меню казино - только для групп"""
     user_id = message.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
-    
+
     win_streak = user_win_streaks.get(user_id, 0)
     current_multiplier = 0.9 ** win_streak
-    
+
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="🎰 Слоты", callback_data="casino_choose_game_slots"),
@@ -481,7 +497,7 @@ async def casino_main_menu(message: types.Message, profile_manager: ProfileManag
         InlineKeyboardButton(text="🃏 Блэкджек", callback_data="casino_choose_game_blackjack")
     )
     builder.row(InlineKeyboardButton(text="ℹ️ Информация", callback_data="casino_info_main"))
-    
+
     await message.reply(
         f"🎰 **Казино Lumcoins** 🎰\n\n"
         f"💰 Ваш баланс: {balance} LUM\n"
@@ -496,7 +512,7 @@ async def choose_slots_game(callback: types.CallbackQuery, profile_manager: Prof
     """Выбор игры в слоты"""
     user_id = callback.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
-    
+
     keyboard = InlineKeyboardBuilder()
     row = []
     for bet in AVAILABLE_BETS:
@@ -504,19 +520,19 @@ async def choose_slots_game(callback: types.CallbackQuery, profile_manager: Prof
             row.append(InlineKeyboardButton(text=f"❌ {bet}", callback_data='none'))
         else:
             row.append(InlineKeyboardButton(text=f"{bet}", callback_data=f'slots_bet_{bet}_{user_id}'))
-        
+
         if len(row) == 3:
             keyboard.row(*row)
             row = []
-    
+
     if row:
         keyboard.row(*row)
-    
+
     keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_back_to_main"))
-    
+
     win_streak = user_win_streaks.get(user_id, 0)
     current_multiplier = 0.9 ** win_streak
-    
+
     await callback.message.edit_text(
         f"🎰 **Игра в слоты** 🎰\n\n"
         f"💰 Ваш баланс: {balance} LUM\n"
@@ -531,33 +547,47 @@ async def choose_roulette_game(callback: types.CallbackQuery, profile_manager: P
     """Выбор игры в рулетку"""
     user_id = callback.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
-    
-    keyboard = InlineKeyboardBuilder()
-    row = []
+
+    # Create keyboard for choosing bet amount
+    bet_keyboard = InlineKeyboardBuilder()
+    bet_row = []
     for bet in AVAILABLE_BETS:
         if bet > balance:
-            row.append(InlineKeyboardButton(text=f"❌ {bet}", callback_data='none'))
+            bet_row.append(InlineKeyboardButton(text=f"❌ {bet}", callback_data='none'))
         else:
-            row.append(InlineKeyboardButton(text=f"{bet}", callback_data=f'roulette_bet_{bet}_{user_id}'))
-        
-        if len(row) == 3:
-            keyboard.row(*row)
-            row = []
-    
-    if row:
-        keyboard.row(*row)
-    
-    keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_back_to_main"))
-    
+            bet_row.append(InlineKeyboardButton(text=f"{bet}", callback_data=f'roulette_bet_{bet}_{user_id}'))
+
+        if len(bet_row) == 3:
+            bet_keyboard.row(*bet_row)
+            bet_row = []
+
+    if bet_row:
+        bet_keyboard.row(*bet_row)
+
+    # Create keyboard for choosing what to bet on
+    choice_keyboard = InlineKeyboardBuilder()
+    choice_keyboard.row(
+        InlineKeyboardButton(text="🔴 Красное", callback_data=f'roulette_choice_red_{user_id}'),
+        InlineKeyboardButton(text="⚫ Черное", callback_data=f'roulette_choice_black_{user_id}'),
+        InlineKeyboardButton(text="🟢 Зеро", callback_data=f'roulette_choice_green_{user_id}')
+    )
+    choice_keyboard.row(
+        InlineKeyboardButton(text="1-12", callback_data=f'roulette_choice_1-12_{user_id}'),
+        InlineKeyboardButton(text="13-24", callback_data=f'roulette_choice_13-24_{user_id}'),
+        InlineKeyboardButton(text="25-36", callback_data=f'roulette_choice_25-36_{user_id}')
+    )
+    choice_keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_back_to_main"))
+
+    # Show the choice keyboard first
     win_streak = user_win_streaks.get(user_id, 0)
     current_multiplier = 0.9 ** win_streak
-    
+
     await callback.message.edit_text(
         f"🎡 **Рулетка** 🎡\n\n"
         f"💰 Ваш баланс: {balance} LUM\n"
         f"📉 Текущий множитель шансов: {current_multiplier:.2f}\n\n"
-        f"Выберите ставку:",
-        reply_markup=keyboard.as_markup()
+        f"Выберите, на что ставить:",
+        reply_markup=choice_keyboard.as_markup()
     )
     await safe_answer_callback(callback)
 
@@ -566,7 +596,7 @@ async def choose_blackjack_game(callback: types.CallbackQuery, profile_manager: 
     """Выбор игры в блэкджек"""
     user_id = callback.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
-    
+
     keyboard = InlineKeyboardBuilder()
     row = []
     for bet in AVAILABLE_BETS:
@@ -574,19 +604,19 @@ async def choose_blackjack_game(callback: types.CallbackQuery, profile_manager: 
             row.append(InlineKeyboardButton(text=f"❌ {bet}", callback_data='none'))
         else:
             row.append(InlineKeyboardButton(text=f"{bet}", callback_data=f'blackjack_bet_{bet}_{user_id}'))
-        
+
         if len(row) == 3:
             keyboard.row(*row)
             row = []
-    
+
     if row:
         keyboard.row(*row)
-    
+
     keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_back_to_main"))
-    
+
     win_streak = user_win_streaks.get(user_id, 0)
     current_multiplier = 0.9 ** win_streak
-    
+
     await callback.message.edit_text(
         f"🃏 **Блэкджек** 🃏\n\n"
         f"💰 Ваш баланс: {balance} LUM\n"
@@ -602,54 +632,54 @@ async def slots_bet_handler(callback: types.CallbackQuery, profile_manager: Prof
     """Обработчик выбора ставки для слотов"""
     user_id = callback.from_user.id
     data_parts = callback.data.split("_")
-    
+
     if len(data_parts) < 4:
         await safe_answer_callback(callback, "❌ Ошибка в данных!")
         return
-    
+
     bet_amount = int(data_parts[2])
     callback_user_id = int(data_parts[3])
-    
+
     if user_id != callback_user_id:
         await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
         return
-    
+
     balance = await profile_manager.get_lumcoins(user_id)
     if balance < bet_amount:
         await safe_answer_callback(callback, "❌ Недостаточно Lumcoins!")
         return
-    
+
     try:
         await profile_manager.update_lumcoins(user_id, -bet_amount)
     except Exception as e:
         logger.error(f"Error deducting bet for user {user_id}: {e}")
         await safe_answer_callback(callback, "❌ Ошибка при списании средств!")
         return
-    
+
     # Показываем анимацию слотов как новое сообщение
     anim_message = await simple_slots_animation(callback.bot, callback.message.chat.id)
-    
+
     # Получаем результат
     result = await CasinoGames.play_slots(bet_amount, user_id)
-    
+
     # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - исправленная версия
     try:
         from core.group.stat.quests_handlers import update_casino_quests
         await update_casino_quests(
-            user_id, 
-            "slots", 
-            result["won"], 
-            result.get("win_amount", 0), 
+            user_id,
+            "slots",
+            result["won"],
+            result.get("win_amount", 0),
             callback.bot
         )
         logger.info(f"✅ Обновлены задания казино (слоты) для пользователя {user_id}, выигрыш: {result['won']}")
     except Exception as e:
         logger.error(f"❌ Ошибка обновления заданий казино: {e}")
-    
+
     if result["won"]:
         await profile_manager.update_lumcoins(user_id, result["win_amount"])
         new_balance = await profile_manager.get_lumcoins(user_id)
-        
+
         result_text = (
             f"🎰 **СЛОТЫ** 🎰\n\n"
             f"Результат: {result['result']}\n"
@@ -666,73 +696,115 @@ async def slots_bet_handler(callback: types.CallbackQuery, profile_manager: Prof
             f"💸 Потеряно: {bet_amount} LUM\n"
             f"💰 Новый баланс: {new_balance} LUM"
         )
-    
+
     keyboard = InlineKeyboardBuilder().add(
         InlineKeyboardButton(text="🎰 Играть снова", callback_data="casino_choose_game_slots"),
         InlineKeyboardButton(text="🔙 В меню", callback_data="casino_back_to_main")
     ).as_markup()
-    
+
     # Отправляем результат как новое сообщение
     await safe_send_message(callback.bot, callback.message.chat.id, result_text, keyboard)
     await safe_answer_callback(callback)
 
-
-
-@casino_router.callback_query(F.data.startswith("roulette_type_"))
-async def roulette_type_handler(callback: types.CallbackQuery, profile_manager: ProfileManager):
-    """Обработчик выбора типа ставки для рулетки"""
+@casino_router.callback_query(F.data.startswith("roulette_choice_"))
+async def roulette_choice_handler(callback: types.CallbackQuery):
+    """Обработчик выбора ставки для рулетки"""
     user_id = callback.from_user.id
     data_parts = callback.data.split("_")
-    
-    if len(data_parts) < 5:
+
+    if len(data_parts) < 4:
         await safe_answer_callback(callback, "❌ Ошибка в данных!")
         return
-    
+
     choice = data_parts[2]
-    bet_amount = int(data_parts[3])
-    callback_user_id = int(data_parts[4])
-    
+    callback_user_id = int(data_parts[3])
+
     if user_id != callback_user_id:
         await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
         return
-    
+
+    # Create keyboard for choosing bet amount
+    keyboard = InlineKeyboardBuilder()
+    row = []
+    for bet in AVAILABLE_BETS:
+        row.append(InlineKeyboardButton(text=f"{bet}", callback_data=f'roulette_bet_{bet}_{choice}_{user_id}'))
+        if len(row) == 3:
+            keyboard.row(*row)
+            row = []
+
+    if row:
+        keyboard.row(*row)
+
+    keyboard.row(InlineKeyboardButton(text="🔙 Назад", callback_data="casino_choose_game_roulette"))
+
+    await callback.message.edit_text(
+        f"🎡 **Рулетка** 🎡\n\n"
+        f"Вы выбрали: {choice}\n\n"
+        f"Выберите ставку:",
+        reply_markup=keyboard.as_markup()
+    )
+    await safe_answer_callback(callback)
+
+@casino_router.callback_query(F.data.startswith("roulette_bet_"))
+async def roulette_bet_handler(callback: types.CallbackQuery, profile_manager: ProfileManager):
+    """Обработчик выбора ставки для рулетки"""
+    user_id = callback.from_user.id
+    data_parts = callback.data.split("_")
+
+    if len(data_parts) < 6:
+        await safe_answer_callback(callback, "❌ Ошибка в данных!")
+        return
+
+    choice = data_parts[3]
+    bet_amount = int(data_parts[4])
+    callback_user_id = int(data_parts[5])
+
+    if user_id != callback_user_id:
+        await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
+        return
+
+    balance = await profile_manager.get_lumcoins(user_id)
+    if balance < bet_amount:
+        await safe_answer_callback(callback, "❌ Недостаточно Lumcoins!")
+        return
+
     try:
         await profile_manager.update_lumcoins(user_id, -bet_amount)
     except Exception as e:
         logger.error(f"Error deducting bet for user {user_id}: {e}")
         await safe_answer_callback(callback, "❌ Ошибка при списании средств!")
         return
-    
+
     # Показываем анимацию рулетки как новое сообщение
     anim_message = await simple_roulette_animation(callback.bot, callback.message.chat.id)
-    
+
     # Получаем результат
     result = await CasinoGames.play_roulette(bet_amount, choice, user_id)
-    
+
     # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - исправленная версия
     try:
         from core.group.stat.quests_handlers import update_casino_quests
         await update_casino_quests(
-            user_id, 
-            "roulette", 
-            result["won"], 
-            result.get("win_amount", 0), 
+            user_id,
+            "roulette",
+            result["won"],
+            result.get("win_amount", 0),
             callback.bot
         )
         logger.info(f"✅ Обновлены задания казино (рулетка) для пользователя {user_id}, выигрыш: {result['won']}")
     except Exception as e:
         logger.error(f"❌ Ошибка обновления заданий казино: {e}")
-    
+
     def get_color_emoji(number):
         if number == 0:
             return "🟢"
         red_numbers = [32, 19, 21, 25, 34, 27, 36, 30, 23, 5, 16, 1, 14, 9, 18, 7, 12, 3]
         return "🔴" if number in red_numbers else "⚫"
-    
+
     if result["won"]:
         await profile_manager.update_lumcoins(user_id, result["win_amount"])
         new_balance = await profile_manager.get_lumcoins(user_id)
-        
+
         result_text = (
             f"🎡 **РУЛЕТКА** 🎡\n\n"
             f"Выпало: {result['result']} {get_color_emoji(result['result'])}\n"
@@ -749,49 +821,48 @@ async def roulette_type_handler(callback: types.CallbackQuery, profile_manager: 
             f"💸 Потеряно: {bet_amount} LUM\n"
             f"💰 Новый баланс: {new_balance} LUM"
         )
-    
+
     keyboard = InlineKeyboardBuilder().add(
         InlineKeyboardButton(text="🎡 Играть снова", callback_data="casino_choose_game_roulette"),
         InlineKeyboardButton(text="🔙 В меню", callback_data="casino_back_to_main")
     ).as_markup()
-    
+
     # Отправляем результат как новое сообщение
     await safe_send_message(callback.bot, callback.message.chat.id, result_text, keyboard)
     await safe_answer_callback(callback)
-
 
 @casino_router.callback_query(F.data.startswith("blackjack_bet_"))
 async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: ProfileManager):
     """Обработчик выбора ставки для блэкджека"""
     user_id = callback.from_user.id
     data_parts = callback.data.split("_")
-    
+
     if len(data_parts) < 4:
         await safe_answer_callback(callback, "❌ Ошибка в данных!")
         return
-    
+
     bet_amount = int(data_parts[2])
     callback_user_id = int(data_parts[3])
-    
+
     if user_id != callback_user_id:
         await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
         return
-    
+
     balance = await profile_manager.get_lumcoins(user_id)
     if balance < bet_amount:
         await safe_answer_callback(callback, "❌ Недостаточно Lumcoins!")
         return
-    
+
     try:
         await profile_manager.update_lumcoins(user_id, -bet_amount)
     except Exception as e:
         logger.error(f"Error deducting bet for user {user_id}: {e}")
         await safe_answer_callback(callback, "❌ Ошибка при списании средств!")
         return
-    
+
     # Начинаем игру
     result = await CasinoGames.play_blackjack(bet_amount, user_id, "start")
-    
+
     # ✅ ОБНОВЛЯЕМ ЗАДАНИЯ КАЗИНО - начало игры
     try:
         from core.group.stat.quests_handlers import update_casino_quests
@@ -799,7 +870,7 @@ async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: 
         logger.info(f"✅ Обновлены задания казино (блэкджек начало) для пользователя {user_id}")
     except Exception as e:
         logger.error(f"❌ Ошибка обновления заданий казино: {e}")
-    
+
     if result["state"] == "playing":
         keyboard = InlineKeyboardBuilder()
         keyboard.row(
@@ -807,7 +878,7 @@ async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: 
             InlineKeyboardButton(text="✋ Остановиться", callback_data=f'bj_stand_{bet_amount}_{user_id}')
         )
         keyboard.row(InlineKeyboardButton(text="🏳️ Сдаться", callback_data=f'bj_surrender_{bet_amount}_{user_id}'))
-        
+
         response_text = (
             f"🃏 **БЛЭКДЖЕК** 🃏\n\n"
             f"💰 Ставка: {bet_amount} LUM\n\n"
@@ -817,10 +888,10 @@ async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: 
             f"💎 Очки дилера: ?\n\n"
             f"{result['message']}"
         )
-        
+
         # Отправляем новое сообщение с игрой
         new_message = await safe_send_message(callback.bot, callback.message.chat.id, response_text, keyboard.as_markup())
-        
+
         if user_id in active_blackjack_sessions and new_message:
             active_blackjack_sessions[user_id]['message_id'] = new_message.message_id
     else:
@@ -832,7 +903,7 @@ async def blackjack_bet_handler(callback: types.CallbackQuery, profile_manager: 
             logger.info(f"✅ Обновлены задания казино (блэкджек результат) для пользователя {user_id}, выигрыш: {won}")
         except Exception as e:
             logger.error(f"❌ Ошибка обновления заданий казино: {e}")
-    
+
     await safe_answer_callback(callback)
 
 @casino_router.callback_query(F.data.startswith("bj_"))
@@ -840,21 +911,21 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
     """Обработчик callback-ов для блэкджека"""
     user_id = callback.from_user.id
     data_parts = callback.data.split("_")
-    
+
     if len(data_parts) < 4:
         await safe_answer_callback(callback, "❌ Ошибка в данных!")
         return
-    
+
     action = data_parts[1]
     bet = int(data_parts[2])
     callback_user_id = int(data_parts[3])
-    
+
     if user_id != callback_user_id:
         await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
         return
-    
+
     result = await CasinoGames.play_blackjack(bet, user_id, action)
-    
+
     if result["state"] in ["playing", "finished", "surrender"]:
         if result["state"] == "playing":
             keyboard = InlineKeyboardBuilder()
@@ -863,7 +934,7 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
                 InlineKeyboardButton(text="✋ Остановиться", callback_data=f'bj_stand_{bet}_{user_id}')
             )
             keyboard.row(InlineKeyboardButton(text="🏳️ Сдаться", callback_data=f'bj_surrender_{bet}_{user_id}'))
-            
+
             response_text = (
                 f"🃏 **БЛЭКДЖЕК** 🃏\n\n"
                 f"💰 Ставка: {bet} LUM\n\n"
@@ -873,7 +944,7 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
                 f"💎 Очки дилера: ?\n\n"
                 f"{result['message']}"
             )
-            
+
             # Отправляем новое сообщение
             await safe_send_message(callback.bot, callback.message.chat.id, response_text, keyboard.as_markup())
         else:
@@ -881,14 +952,14 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
             won = result.get("result") in ["win", "blackjack"]
             win_amount = result.get("win_amount", 0)
             await update_casino_quests(user_id, "blackjack", won, win_amount, callback.bot)
-            
+
             if result["state"] == "finished" and result["win_amount"] > 0:
                 await profile_manager.update_lumcoins(user_id, result["win_amount"])
             elif result["state"] == "surrender":
                 await profile_manager.update_lumcoins(user_id, result["win_amount"])
-            
+
             new_balance = await profile_manager.get_lumcoins(user_id)
-            
+
             if result["state"] == "finished":
                 response_text = (
                     f"🃏 **БЛЭКДЖЕК** 🃏\n\n"
@@ -905,19 +976,19 @@ async def blackjack_callback_handler(callback: types.CallbackQuery, profile_mana
                     f"{result['message']}\n"
                     f"💰 Новый баланс: {new_balance} LUM"
                 )
-            
+
             keyboard = InlineKeyboardBuilder().add(
                 InlineKeyboardButton(text="🃏 Новая игра", callback_data="casino_choose_game_blackjack"),
                 InlineKeyboardButton(text="🔙 В меню", callback_data="casino_back_to_main")
             ).as_markup()
-            
+
             # Отправляем результат как новое сообщение
             await safe_send_message(callback.bot, callback.message.chat.id, response_text, keyboard)
-        
+
         await safe_answer_callback(callback)
     else:
         await safe_answer_callback(callback, "❌ Неизвестное состояние игры!")
-    
+
 # Информационные обработчики
 @casino_router.callback_query(F.data == "casino_info_main")
 async def casino_info_main(callback: types.CallbackQuery):
@@ -930,7 +1001,7 @@ async def casino_info_main(callback: types.CallbackQuery):
         "• Шансы автоматически корректируются для баланса\n\n"
         
         "**🎰 Слоты:**\n"
-        "• 2 одинаковых символа: x1\n" 
+        "• 2 одинаковых символа: x1\n"
         "• 3 одинаковых символа: x3\n"
         "• 3 семёрки (7️⃣): x5\n"
         "• 3 алмаза (💎): x10\n\n"
@@ -962,10 +1033,10 @@ async def casino_back_to_main(callback: types.CallbackQuery, profile_manager: Pr
     """Возврат в главное меню казино"""
     user_id = callback.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
-    
+
     win_streak = user_win_streaks.get(user_id, 0)
     current_multiplier = 0.9 ** win_streak
-    
+
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="🎰 Слоты", callback_data="casino_choose_game_slots"),
@@ -973,7 +1044,7 @@ async def casino_back_to_main(callback: types.CallbackQuery, profile_manager: Pr
         InlineKeyboardButton(text="🃏 Блэкджек", callback_data="casino_choose_game_blackjack")
     )
     builder.row(InlineKeyboardButton(text="ℹ️ Информация", callback_data="casino_info_main"))
-    
+
     await callback.message.edit_text(
         f"🎰 **Казино Lumcoins** 🎰\n\n"
         f"💰 Ваш баланс: {balance} LUM\n"

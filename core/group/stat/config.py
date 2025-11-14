@@ -1,6 +1,7 @@
 class ProfileConfig:
     DEFAULT_LOCAL_BG_PATH = "background/defolt.jpg"
     DEFAULT_AVATAR_URL = "https://placehold.co/120x120/CCCCCC/FFFFFF/png?text=AV"
+    DEFAULT_AVATAR_PATH = "background/default_avatar.png"
 
     FONT_PATH = "Hlobus.ttf"
     TEXT_COLOR = (255, 255, 255)
@@ -66,8 +67,12 @@ class ProfileConfig:
     @staticmethod
     def LEVEL_UP_EXP_REQUIREMENT(level: int) -> int:
         """Рассчитывает необходимое количество опыта для достижения следующего уровня"""
-        # Пример: 100 опыта для 1 уровня, 200 для 2, 300 для 3 и т.д.
-        return level * 100
+        # На первом уровне требуется 100 опыта
+        if level == 1:
+            return 100
+
+        # Для последующих уровней увеличиваем требования на 1.25 раз
+        return int(100 * (1.25 ** (level - 1)))
 
 class WorkConfig:
     WORK_TASKS = {

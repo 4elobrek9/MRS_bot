@@ -590,19 +590,12 @@ async def cmd_show_quests(message: types.Message, profile_manager: ProfileManage
     builder.row(InlineKeyboardButton(text="📊 Статистика", callback_data="quests_stats"))
     builder.row(InlineKeyboardButton(text="🔄 Обновить", callback_data="refresh_quests"))
     
-    # Если сообщение уже существует, редактируем его, иначе отправляем новое
-    if hasattr(message, 'message_id'):
-        await message.edit_text(
-            text,
-            reply_markup=builder.as_markup(),
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await message.answer(
-            text,
-            reply_markup=builder.as_markup(),
-            parse_mode=ParseMode.MARKDOWN
-        )
+    # Всегда отправляем новое сообщение вместо редактирования
+    await message.answer(
+        text,
+        reply_markup=builder.as_markup(),
+        parse_mode=ParseMode.MARKDOWN
+    )
 
 @quests_router.callback_query(F.data == "refresh_quests")
 async def refresh_quests_callback(callback: types.CallbackQuery, profile_manager: ProfileManager):

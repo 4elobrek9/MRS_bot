@@ -2,6 +2,7 @@ import random
 import re
 from pathlib import Path
 import logging
+import time  # Added import for time module
 from typing import List, Tuple, Any, Dict, Callable, Awaitable # Добавлены Callable, Awaitable
 import asyncio
 from contextlib import suppress
@@ -24,6 +25,9 @@ NON_SLASH_COMMAND_PREFIXES: List[str] = []
 DIRECT_DISPATCH_HANDLERS: Dict[str, Tuple[Callable[..., Awaitable[Any]], List[str]]] = {}
 GLOBAL_PROFILE_MANAGER: Any = None
 GLOBAL_BOT: Any = None
+
+# Глобальная переменная для хранения времени инициализации бота
+BOT_INIT_TIME: float = 0.0
 
 
 def load_bad_words(filepath: Path) -> List[str]:
@@ -210,8 +214,8 @@ async def censor_message_handler(message: types.Message, bot: Bot, state: FSMCon
                     handler_args = {}
                     if "message" in required_args_names:
                         handler_args["message"] = message
-                    if "bot" in required_args_names and GLOBAL_BOT:
-                        handler_args["bot"] = GLOBAL_BOT
+                    if "bot" in required_args_names:
+                        handler_args["bot"] = bot # ИСПОЛЬЗУЕМ 'bot' ИЗ АРГУМЕНТОВ ХЕНДЛЕРА
                     if "profile_manager" in required_args_names and GLOBAL_PROFILE_MANAGER:
                         handler_args["profile_manager"] = GLOBAL_PROFILE_MANAGER
                     if "command_text_payload" in required_args_names:
@@ -270,8 +274,8 @@ async def censor_message_handler(message: types.Message, bot: Bot, state: FSMCon
                # к другим обработчикам (например, F.text.lower().startswith("профиль") в stat_router).
 
 def setup_censor_handlers(
-    main_dp: Router, 
-    bad_words_file_path: Path, 
+    main_dp: Router,
+    bad_words_file_path: Path,
     non_slash_command_prefixes: List[str],
     direct_dispatch_handlers: Dict[str, Tuple[Callable[..., Awaitable[Any]], List[str]]],
     profile_manager_instance: Any,
@@ -286,20 +290,25 @@ def setup_censor_handlers(
     logger.debug(f"setup_censor_handlers: Начата настройка модуля цензуры.")
     global BAD_WORD_ROOTS
     BAD_WORD_ROOTS = load_bad_words(bad_words_file_path) # Загружаем слова при инициализации
-    
+
     global NON_SLASH_COMMAND_PREFIXES
     # Сортируем по длине в убывающем порядке, чтобы более длинные команды проверялись первыми (например, "моё хп" раньше "хп")
-    NON_SLASH_COMMAND_PREFIXES = sorted([cmd.lower() for cmd in non_slash_command_prefixes], key=len, reverse=True) 
+    NON_SLASH_COMMAND_PREFIXES = sorted([cmd.lower() for cmd in non_slash_command_prefixes], key=len, reverse=True)
     logger.debug(f"setup_censor_handlers: Загружены не-слеш команды для игнорирования цензором: {NON_SLASH_COMMAND_PREFIXES}")
 
     global DIRECT_DISPATCH_HANDLERS
     DIRECT_DISPATCH_HANDLERS = direct_dispatch_handlers
-    
+
     global GLOBAL_PROFILE_MANAGER
     GLOBAL_PROFILE_MANAGER = profile_manager_instance
 
     global GLOBAL_BOT
     GLOBAL_BOT = bot_instance
+
+    # Устанавливаем время инициализации бота
+    global BOT_INIT_TIME
+    BOT_INIT_TIME = time.time()
+    logger.debug(f"setup_censor_handlers: Время инициализации бота установлено: {BOT_INIT_TIME}")
 
     logger.debug("setup_censor_handlers: Включение censor_router в главный диспетчер.")
     main_dp.include_router(censor_router)
