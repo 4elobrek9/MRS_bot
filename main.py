@@ -54,7 +54,8 @@ from group_stat import (
     heal_hp,
     give_lumcoins,
     check_transfer_status,
-    setup_stat_handlers # Важно для регистрации кнопок
+    setup_stat_handlers,
+    show_online_admins # Добавляем новый импорт
 )
 from rp_module_refactored import (
     cmd_check_self_hp,
@@ -99,7 +100,7 @@ async def migrate_inventory_table():
                         user_id INTEGER,
                         item_key TEXT,
                         item_type TEXT,
-                        quantity INTEGER DEFAULT 1,
+                        quantity INTEGER DEFAULT1,
                         item_data TEXT,
                         acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (user_id, item_key)
@@ -211,10 +212,7 @@ async def main():
         "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
         "задания": (cmd_show_quests, ["message", "profile_manager"]),
         "квесты": (cmd_show_quests, ["message", "profile_manager"]),
-
-        # <<< ДОБАВЛЕНО: Обработка П-Магазина
-        "пмагазин": (cmd_plum_shop, ["message", "profile_manager"]),
-        "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
+        "админы": (show_online_admins, ["message", "bot"]) # Добавляем новый обработчик
     }
 
     for action in RPActions.SORTED_COMMANDS_FOR_PARSING:

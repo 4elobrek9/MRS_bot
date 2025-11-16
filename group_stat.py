@@ -42,9 +42,9 @@ import re
 from urllib.parse import urlparse
 
 __all__ = [
-    'show_profile', 
-    'do_work', 
-    'show_shop', 
+    'show_profile',
+    'do_work',
+    'show_shop',
     'show_top',
     'manage_censor',
     'heal_hp',
@@ -82,10 +82,10 @@ async def process_buy_custom_background(callback: types.CallbackQuery, profile_m
             "lumcoins_before": user_lumcoins,
             "timestamp": time.time()  # Добавляем timestamp
         }
-        
+
         # Переходим в состояние ожидания URL
         await state.set_state(CustomBackgroundStates.waiting_for_url)
-        
+
         await callback.message.edit_text(
             "🖼️ **Покупка кастомного фона**\n\n"
             "Отправьте ссылку на изображение для вашего фона.\n\n"
@@ -111,7 +111,7 @@ async def process_buy_custom_background(callback: types.CallbackQuery, profile_m
 @stat_router.message(CustomBackgroundStates.waiting_for_url)
 async def process_custom_bg_url(message: types.Message, profile_manager: ProfileManager, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
-    
+
     # Проверяем отмену
     if message.text and message.text.lower() in ["/cancel", "отмена", "cancel"]:
         await state.clear()
@@ -119,15 +119,15 @@ async def process_custom_bg_url(message: types.Message, profile_manager: Profile
             del custom_bg_purchases[user_id]
         await message.answer("❌ Покупка кастомного фона отменена.")
         return
-    
+
     # Проверяем, что сообщение содержит URL
     url = message.text.strip()
-    
+
     # Простая проверка URL
     if not re.match(r'^https?://', url):
         await message.answer("❌ Это не похоже на валидный URL. Отправьте корректную ссылку на изображение.\n\nДля отмены отправьте /cancel")
         return
-    
+
     # Проверяем расширение файла
     parsed_url = urlparse(url)
     path = parsed_url.path.lower()
@@ -139,24 +139,24 @@ async def process_custom_bg_url(message: types.Message, profile_manager: Profile
             "Для отмены отправьте /cancel"
         )
         return
-    
+
     # Получаем информацию о покупке
     purchase_info = custom_bg_purchases.get(user_id)
     if not purchase_info:
         await state.clear()
         await message.answer("❌ Информация о покупке не найдена. Начните заново.")
         return
-    
+
     # Создаем клавиатуру для подтверждения
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(text="✅ Подтвердить", callback_data=f"confirm_custom_bg:{url}"),
         InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_custom_bg")
     )
-    
+
     # Сохраняем URL в состоянии
     await state.update_data(custom_bg_url=url)
-    
+
     await message.answer(
         f"📸 **Предпросмотр кастомного фона**\n"
         f"🔗 Ссылка: {url}\n\n"
@@ -166,13 +166,14 @@ async def process_custom_bg_url(message: types.Message, profile_manager: Profile
         reply_markup=builder.as_markup(),
         disable_web_page_preview=False
     )
+
 # Добавим функцию для очистки устаревших покупок
 async def cleanup_old_purchases():
     """Очищает устаревшие записи о покупках"""
     global custom_bg_purchases
     current_time = time.time()
     # Удаляем покупки старше 1 часа
-    custom_bg_purchases = {k: v for k, v in custom_bg_purchases.items() 
+    custom_bg_purchases = {k: v for k, v in custom_bg_purchases.items()
                           if current_time - v.get('timestamp', 0) < 3600}
 
 # Добавим обработчик подтверждения
@@ -180,44 +181,40 @@ async def cleanup_old_purchases():
 async def process_confirm_custom_bg(callback: types.CallbackQuery, profile_manager: ProfileManager, state: FSMContext):
     user_id = callback.from_user.id
     url = callback.data.split(":", 1)[1]
-    
+
     # Получаем информацию о покупке
     purchase_info = custom_bg_purchases.get(user_id)
     if not purchase_info:
         await callback.message.edit_text("❌ Информация о покупке не найдена.")
         await state.clear()
         return
-    
+
     # Списываем Lumcoins
     await profile_manager.update_lumcoins(user_id, -purchase_info['price'])
-    
+
     # Добавляем кастомный фон в инвентарь
     await add_item_to_inventory(user_id, f"custom:{user_id}", 'background')
-    
+
     # Сохраняем URL кастомного фона в отдельной таблице
     async with aiosqlite.connect('profiles.db') as conn:
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS custom_backgrounds (
-                user_id INTEGER PRIMARY KEY,
-                background_url TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        await conn.execute('''
-            INSERT OR REPLACE INTO custom_backgrounds (user_id, background_url)
-            VALUES (?, ?)
-        ''', (user_id, url))
+        await conn.execute('''CREATE TABLE IF NOT EXISTS custom_backgrounds (
+            user_id INTEGER PRIMARY KEY,
+            background_url TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )''')
+        await conn.execute('''INSERT OR REPLACE INTO custom_backgrounds (user_id, background_url)
+            VALUES (?, ?)''', (user_id, url))
         await conn.commit()
-    
+
     # Активируем фон
     await profile_manager.set_user_background(user_id, f"custom:{user_id}")
-    
+
     # Очищаем состояние
     await state.clear()
-    
+
     if user_id in custom_bg_purchases:
         del custom_bg_purchases[user_id]
-    
+
     await callback.message.edit_text(
         f"✅ Кастомный фон успешно приобретен и активирован!\n\n"
         f"Ссылка: {url}\n"
@@ -230,10 +227,10 @@ async def process_confirm_custom_bg(callback: types.CallbackQuery, profile_manag
 @stat_router.callback_query(F.data == "cancel_custom_bg")
 async def process_cancel_custom_bg(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
-    
+
     if user_id in custom_bg_purchases:
         del custom_bg_purchases[user_id]
-    
+
     await state.clear()
     await callback.message.edit_text("❌ Покупка кастомного фона отменена.")
 
@@ -249,7 +246,6 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
     user_backgrounds_inventory = await profile_manager.get_user_backgrounds_inventory(user_id)
 
     if background_key_to_activate in user_backgrounds_inventory or background_key_to_activate == 'default' or background_key_to_activate.startswith("custom:"):
-        
         # Если это кастомный фон, проверяем его наличие
         if background_key_to_activate.startswith("custom:"):
             async with aiosqlite.connect('profiles.db') as conn:
@@ -258,17 +254,17 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
                     (user_id,)
                 )
                 custom_bg = await cursor.fetchone()
-                
+
                 if not custom_bg:
                     await callback.message.edit_text(
                         "❌ Кастомный фон не найден. Обратитесь к администратору.",
                         reply_markup=None
                     )
                     return
-        
+
         # Используем метод ProfileManager для установки активного фона
-        await profile_manager.set_user_background(user_id, background_key_to_activate) 
-        
+        await profile_manager.set_user_background(user_id, background_key_to_activate)
+
         # Получаем информацию о фоне для отображения имени
         if background_key_to_activate.startswith("custom:"):
             bg_name = "Кастомный фон"
@@ -283,7 +279,7 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
             f"✅ Фон '{bg_name}' успешно активирован!",
             reply_markup=None
         )
-        
+
     else:
         logger.warning(f"User {user_id} tried to activate background '{background_key_to_activate}' not in inventory.")
         await callback.message.edit_text(
@@ -295,7 +291,7 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
 @stat_router.message(F.text.lower().startswith(("профиль", "/профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
-    
+
     # Используем метод ProfileManager для проверки/создания
     await profile_manager.ensure_user_profile_exists(message.from_user)
 
@@ -304,22 +300,22 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         logger.error(f"Failed to load profile for user {message.from_user.id} after /profile command.")
         await message.reply("❌ Не удалось загрузить профиль!")
         return
-    
+
     from database import get_user_rp_stats
     rp_stats = await get_user_rp_stats(message.from_user.id)
     if rp_stats:
         profile['hp'] = rp_stats.get('hp', 100)
-    
+
     logger.debug(f"Generating profile image for user {message.from_user.id}.")
-    
+
     # ИСПРАВЛЕНИЕ: используем экземпляр profile_manager, а не класс ProfileManager
     image_bytes = await profile_manager.generate_profile_image(message.from_user, profile, bot)
-    
+
     if image_bytes is None:
         logger.error(f"Failed to generate profile image for user {message.from_user.id}.")
         await message.reply("❌ Не удалось сгенерировать изображение профиля!")
         return
-    
+
     logger.info(f"Sending profile image to user {message.from_user.id}.")
     await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
 
@@ -344,7 +340,7 @@ async def heal_hp(message: types.Message, profile_manager: ProfileManager):
 
     # Получаем баланс Lumcoins
     lumcoins = await profile_manager.get_lumcoins(user_id)
-    
+
     # Расчет стоимости лечения (10 LUM за 10 HP)
     hp_needed = max_hp - current_hp
     heal_amount = min(hp_needed, 10)  # Максимум 10 HP за раз
@@ -373,7 +369,7 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
 
     last_work_time = await profile_manager.get_last_work_time(user_id)
     current_time = time.time()
-    
+
     # Проверка кулдауна
     if current_time - last_work_time < WorkConfig.COOLDOWN_SECONDS:
         remaining_time = int(WorkConfig.COOLDOWN_SECONDS - (current_time - last_work_time))
@@ -391,7 +387,6 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
     await message.reply(f"✅ Вы успешно {task_name} и заработали {lumcoins_reward} Lumcoins!")
     logger.info(f"User {user_id} successfully worked, earned {lumcoins_reward} Lumcoins. Task: '{task_name}'.")
 
-
 @stat_router.message(F.text.lower().startswith(("магазин", "/магазин")))
 async def show_shop(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
@@ -407,27 +402,27 @@ async def show_shop(message: types.Message, profile_manager: ProfileManager):
 
     for key, bg_info in available_backgrounds.items():
         name = bg_info['name']
-        price = bg_info.get('price', 0) 
-        
+        price = bg_info.get('price', 0)
+
         # Проверяем, есть ли у пользователя кастомный фон
         has_custom = any(bg.startswith("custom:") for bg in user_backgrounds_inventory)
-        
+
         status = ""
         if key == "custom" and has_custom:
             status = " (Куплено)"
-            user_profile = await profile_manager.get_user_profile(message.from_user) 
+            user_profile = await profile_manager.get_user_profile(message.from_user)
             if any(bg.startswith("custom:") and bg == user_profile.get('active_background', 'default') for bg in user_backgrounds_inventory):
                 status = " (Активно)"
             builder.add(InlineKeyboardButton(text=f"✅ {name}{status}", callback_data=f"activate_bg:custom:{user_id}"))
         elif key in user_backgrounds_inventory or (key == "custom" and has_custom):
             status = " (Куплено)"
-            user_profile = await profile_manager.get_user_profile(message.from_user) 
+            user_profile = await profile_manager.get_user_profile(message.from_user)
             if key == user_profile.get('active_background', 'default'):
                 status = " (Активно)"
             builder.add(InlineKeyboardButton(text=f"✅ {name}{status}", callback_data=f"activate_bg:{key}"))
         else:
             builder.add(InlineKeyboardButton(text=f"💰 {name} ({price} LUM)", callback_data=f"buy_bg:{key}"))
-    
+
     builder.adjust(1)
     await message.answer(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
     logger.info(f"Shop list with inline buttons sent to user {user_id}.")
@@ -438,7 +433,7 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
     background_key_to_buy = callback.data.split(":")[1]
 
     logger.info(f"User {user_id} attempting to buy background: '{background_key_to_buy}'.")
-    
+
     # Обработка покупки кастомного фона перенесена в process_buy_custom_background
     if background_key_to_buy == 'custom':
         await process_buy_custom_background(callback, profile_manager, FSMContext.get_context(callback.bot, user_id, user_id)) # TODO: Fix FSM context passing
@@ -465,13 +460,13 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
     if user_lumcoins >= bg_price:
         # Сначала списываем Lumcoins
         await profile_manager.update_lumcoins(user_id, -bg_price)
-        
+
         # Добавляем в инвентарь
         await add_item_to_inventory(user_id, background_key_to_buy, 'background')
-        
+
         # Устанавливаем активный фон через профиль менеджер
         await profile_manager.set_user_background(user_id, background_key_to_buy)
-        
+
         logger.info(f"User {user_id} successfully bought and activated background '{bg_name}'.")
         await callback.message.edit_text(
             f"🎉 Вы успешно купили и активировали фон '{bg_name}' за {bg_price} Lumcoins!",
@@ -484,7 +479,6 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             reply_markup=None
         )
 
-
 @stat_router.message(F.text.lower().startswith(("топ", "/топ")))
 async def show_top(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
@@ -492,7 +486,7 @@ async def show_top(message: types.Message, profile_manager: ProfileManager):
 
     # Получаем топ пользователей по уровню
     top_users_level = await profile_manager.get_top_users_by_level(limit=10)
-    
+
     response_text = "🏆 **Топ 10 игроков по уровню:** 🏆\n\n"
     if top_users_level:
         for i, user_data in enumerate(top_users_level):
@@ -514,7 +508,6 @@ async def show_top(message: types.Message, profile_manager: ProfileManager):
     await message.answer(response_text, parse_mode=ParseMode.MARKDOWN)
     logger.info(f"Top players list sent to user {user_id}.")
 
-
 async def ensure_user_exists(user_id: int, username: Optional[str], first_name: str, last_name: Optional[str] = None):
     """
     Убеждается, что пользователь существует в основной базе данных и в базе данных профилей.
@@ -531,52 +524,40 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
 
         if not table_exists:
             # Если таблицы нет, создаем её (это должно быть в initialize_database, но для надежности)
-            await main_db_conn.execute('''
-                CREATE TABLE users (
-                    user_id INTEGER PRIMARY KEY,
-                    username TEXT,
-                    first_name TEXT NOT NULL,
-                    last_active_ts REAL DEFAULT 0
-                )
-            ''')
+            await main_db_conn.execute('''CREATE TABLE users (
+                user_id INTEGER PRIMARY KEY,
+                username TEXT,
+                first_name TEXT NOT NULL,
+                last_active_ts REAL DEFAULT0
+            )''')
             await main_db_conn.commit()
 
         # Остальной код без изменений
-        await main_db_conn.execute('''
-            INSERT INTO users (user_id, username, first_name, last_active_ts)
+        await main_db_conn.execute('''INSERT INTO users (user_id, username, first_name, last_active_ts)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 username = excluded.username,
                 first_name = excluded.first_name,
-                last_active_ts = excluded.last_active_ts
-        ''', (user_id, username, first_name, time.time()))
+                last_active_ts = excluded.last_active_ts''', (user_id, username, first_name, time.time()))
 
         # Убедимся, что таблицы user_modes и rp_user_stats существуют
-        await main_db_conn.execute('''
-            CREATE TABLE IF NOT EXISTS user_modes (
-                user_id INTEGER PRIMARY KEY,
-                mode TEXT NOT NULL DEFAULT 'saharoza',
-                rating_opportunities_count INTEGER DEFAULT 0,
-                FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            )
-        ''')
-        await main_db_conn.execute('''
-            CREATE TABLE IF NOT EXISTS rp_user_stats (
-                user_id INTEGER PRIMARY KEY,
-                hp INTEGER NOT NULL DEFAULT 100,
-                heal_cooldown_ts REAL NOT NULL DEFAULT 0,
-                recovery_end_ts REAL NOT NULL DEFAULT 0,
-                FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
-            )
-        ''')
+        await main_db_conn.execute('''CREATE TABLE IF NOT EXISTS user_modes (
+            user_id INTEGER PRIMARY KEY,
+            mode TEXT NOT NULL DEFAULT 'saharoza',
+            rating_opportunities_count INTEGER DEFAULT0,
+            FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )''')
+        await main_db_conn.execute('''CREATE TABLE IF NOT EXISTS rp_user_stats (
+            user_id INTEGER PRIMARY KEY,
+            hp INTEGER NOT NULL DEFAULT100,
+            heal_cooldown_ts REAL NOT NULL DEFAULT0,
+            recovery_end_ts REAL NOT NULL DEFAULT0,
+            FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
+        )''')
 
-        await main_db_conn.execute('''
-            INSERT OR IGNORE INTO user_modes (user_id, mode, rating_opportunities_count)
-            VALUES (?, 'saharoza', 0)
-        ''', (user_id,))
-        await main_db_conn.execute('''
-            INSERT OR IGNORE INTO rp_user_stats (user_id) VALUES (?)
-        ''', (user_id,))
+        await main_db_conn.execute('''INSERT OR IGNORE INTO user_modes (user_id, mode, rating_opportunities_count)
+            VALUES (?, 'saharoza', 0)''', (user_id,))
+        await main_db_conn.execute('''INSERT OR IGNORE INTO rp_user_stats (user_id) VALUES (?)''', (user_id,))
         await main_db_conn.commit()
         logger.debug(f"User {user_id} ensured in main bot database.")
     except Exception as e:
@@ -589,14 +570,10 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     profiles_db_conn = None
     try:
         profiles_db_conn = await aiosqlite.connect('profiles.db')
-        await profiles_db_conn.execute('''
-            INSERT OR IGNORE INTO users (user_id, username, first_name, last_name)
-            VALUES (?, ?, ?, ?)
-        ''', (user_id, username, first_name, last_name))
-        await profiles_db_conn.execute('''
-            INSERT OR IGNORE INTO user_profiles (user_id, active_background)
-            VALUES (?, 'default')
-        ''', (user_id,))
+        await profiles_db_conn.execute('''INSERT OR IGNORE INTO users (user_id, username, first_name, last_name)
+            VALUES (?, ?, ?, ?)''', (user_id, username, first_name, last_name))
+        await profiles_db_conn.execute('''INSERT OR IGNORE INTO user_profiles (user_id, active_background)
+            VALUES (?, 'default')''', (user_id,))
         await profiles_db_conn.commit()
         logger.debug(f"User {user_id} ensured in profiles database.")
     except Exception as e:
@@ -604,7 +581,6 @@ async def ensure_user_exists(user_id: int, username: Optional[str], first_name: 
     finally:
         if profiles_db_conn:
             await profiles_db_conn.close()
-
 
 def setup_stat_handlers(main_dp: Router):
     main_dp.include_router(stat_router)
@@ -616,7 +592,7 @@ async def manage_censor(message: types.Message, bot: Bot):
     """Управление настройками цензуры в группе"""
     user_id = message.from_user.id
     chat_id = message.chat.id
-    
+
     # Проверяем права администратора
     try:
         member = await bot.get_chat_member(chat_id, user_id)
@@ -627,7 +603,7 @@ async def manage_censor(message: types.Message, bot: Bot):
         logger.error(f"Error checking admin status for user {user_id} in chat {chat_id}: {e}")
         await message.reply("❌ Не удалось проверить ваши права администратора.")
         return
-        
+
     text = message.text.lower().split()
     if len(text) < 2:
         # Показываем текущий статус цензуры
@@ -638,7 +614,7 @@ async def manage_censor(message: types.Message, bot: Bot):
                           "• `цензура вкл` - включить\n"
                           "• `цензура выкл` - выключить")
         return
-        
+
     action = text[1]
     if action in ["вкл", "on", "enable"]:
         await set_group_censor_setting(chat_id, True)
@@ -648,7 +624,6 @@ async def manage_censor(message: types.Message, bot: Bot):
         await message.reply("❌ Цензура выключена. Могу ругаться сколько угодно!")
     else:
         await message.reply("❌ Неизвестная команда. Используйте `цензура вкл` или `цензура выкл`")
-
 
 async def find_user_by_username(username: str):
     """
@@ -663,7 +638,7 @@ async def find_user_by_username(username: str):
                 (clean_username,)
             )
             user_data = await cursor.fetchone()
-            
+
             if user_data:
                 from aiogram.types import User
                 return User(
@@ -674,7 +649,7 @@ async def find_user_by_username(username: str):
                 )
     except Exception as e:
         logger.error(f"Error finding user by username {username}: {e}")
-    
+
     return None
 
 async def get_last_transfer_time(user_id: int) -> float:
@@ -682,15 +657,13 @@ async def get_last_transfer_time(user_id: int) -> float:
     try:
         async with aiosqlite.connect('profiles.db') as conn:
             # Создаем таблицу если её нет
-            await conn.execute('''
-                CREATE TABLE IF NOT EXISTS transfer_history (
-                    user_id INTEGER PRIMARY KEY,
-                    last_transfer_time REAL DEFAULT 0,
-                    total_transferred INTEGER DEFAULT 0
-                )
-            ''')
+            await conn.execute('''CREATE TABLE IF NOT EXISTS transfer_history (
+                user_id INTEGER PRIMARY KEY,
+                last_transfer_time REAL DEFAULT0,
+                total_transferred INTEGER DEFAULT0
+            )''')
             await conn.commit()
-            
+
             cursor = await conn.execute(
                 'SELECT last_transfer_time FROM transfer_history WHERE user_id = ?',
                 (user_id,)
@@ -705,10 +678,8 @@ async def update_last_transfer_time(user_id: int, transfer_time: float):
     """Обновляет время последнего перевода пользователя"""
     try:
         async with aiosqlite.connect('profiles.db') as conn:
-            await conn.execute('''
-                INSERT OR REPLACE INTO transfer_history (user_id, last_transfer_time, total_transferred)
-                VALUES (?, ?, COALESCE((SELECT total_transferred FROM transfer_history WHERE user_id = ?), 0) + 1)
-            ''', (user_id, transfer_time, user_id))
+            await conn.execute('''INSERT OR REPLACE INTO transfer_history (user_id, last_transfer_time, total_transferred)
+                VALUES (?, ?, COALESCE((SELECT total_transferred FROM transfer_history WHERE user_id = ?), 0) + 1)''', (user_id, transfer_time, user_id))
             await conn.commit()
     except Exception as e:
         logger.error(f"Error updating last transfer time for user {user_id}: {e}")
@@ -718,7 +689,7 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
     """Передача Lumcoins другому пользователю с ограничениями"""
     user_id = message.from_user.id
     logger.info(f"Received 'дать' command from user {user_id}: '{message.text}'")
-    
+
     # Парсим команду
     parts = message.text.split()
     if len(parts) < 2:
@@ -732,52 +703,52 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
             "• Кулдаун: 10 часов между переводами"
         )
         return
-    
+
     # Пытаемся извлечь сумму
     try:
         amount = int(parts[1])
     except ValueError:
         await message.reply("❌ Сумма должна быть числом!")
         return
-    
+
     # Проверяем ограничения
     if amount <= 0:
         await message.reply("❌ Сумма должна быть положительной!")
         return
-    
+
     if amount > 50000:
         await message.reply("❌ Максимальная сумма для передачи - 50,000 LUM!")
         return
-    
+
     # Проверяем кулдаун (10 часов)
     last_transfer_time = await get_last_transfer_time(user_id)
     current_time = time.time()
     cooldown_seconds = 10 * 60 * 60  # 10 часов
-    
+
     if current_time - last_transfer_time < cooldown_seconds:
         remaining_time = int(cooldown_seconds - (current_time - last_transfer_time))
         hours = remaining_time // 3600
         minutes = (remaining_time % 3600) // 60
-        
+
         await message.reply(
             f"⏳ Вы сможете передавать деньги снова через {hours}ч {minutes}м\n\n"
             f"💡 Следующий перевод: <code>{datetime.fromtimestamp(current_time + remaining_time).strftime('%H:%M')}</code>",
             parse_mode=ParseMode.HTML
         )
         return
-    
+
     # Ищем целевого пользователя
     target_user = None
-    
+
     # Способ 1: через упоминание (@username)
     if len(parts) > 2:
         username = parts[2].lstrip('@')
         target_user = await find_user_by_username(username)
-    
+
     # Способ 2: через ответ на сообщение
     if not target_user and message.reply_to_message:
         target_user = message.reply_to_message.from_user
-    
+
     if not target_user:
         await message.reply(
             "❌ Не указан получатель.\n\n"
@@ -786,17 +757,17 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
             "• Ответьте на сообщение: `дать 1000`"
         )
         return
-    
+
     # Нельзя передавать себе
     if target_user.id == user_id:
         await message.reply("❌ Нельзя передавать деньги самому себе!")
         return
-    
+
     # Нельзя передавать боту
     if target_user.is_bot:
         await message.reply("❌ Нельзя передавать деньги боту!")
         return
-    
+
     # Проверяем баланс отправителя
     sender_balance = await profile_manager.get_lumcoins(user_id)
     if sender_balance < amount:
@@ -806,10 +777,10 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
             f"💸 Нужно: {amount} LUM"
         )
         return
-    
+
     # Проверяем, что получатель существует в базе
     await ensure_user_exists(target_user.id, target_user.username, target_user.first_name)
-    
+
     # Выполняем перевод
     try:
         # Списываем у отправителя
@@ -818,11 +789,11 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         await profile_manager.update_lumcoins(target_user.id, amount)
         # Обновляем время последнего перевода
         await update_last_transfer_time(user_id, current_time)
-        
+
         # Формируем сообщение об успехе
         sender_name = message.from_user.first_name
         target_name = target_user.first_name or target_user.username or "пользователь"
-        
+
         success_message = (
             f"✅ **Перевод выполнен!**\n\n"
             f"💸 *{sender_name}* → *{target_name}*\n"
@@ -830,10 +801,10 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
             f"📊 Ваш баланс: *{sender_balance - amount:,} LUM*\n\n"
             f"⏳ Следующий перевод через *10 часов*"
         )
-        
+
         await message.reply(success_message, parse_mode=ParseMode.MARKDOWN)
         logger.info(f"User {user_id} transferred {amount} LUM to user {target_user.id}")
-        
+
         # Уведомляем получателя, если это возможно
         try:
             if target_user.id != user_id:
@@ -844,21 +815,20 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
                 await message.bot.send_message(target_user.id, notification)
         except Exception as e:
             logger.warning(f"Could not send notification to user {target_user.id}: {e}")
-        
+
     except Exception as e:
         logger.error(f"Error transferring Lumcoins from {user_id} to {target_user.id}: {e}")
         await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
-
 
 @stat_router.message(F.text.lower().startswith(("перевод", "/перевод", "трансфер", "/трансфер")))
 async def check_transfer_status(message: types.Message):
     """Показывает статус перевода и время до следующего возможного"""
     user_id = message.from_user.id
-    
+
     last_transfer_time = await get_last_transfer_time(user_id)
     current_time = time.time()
     cooldown_seconds = 10 * 60 * 60  # 10 часов
-    
+
     if last_transfer_time == 0:
         await message.reply(
             "🔄 **Статус переводов**\n\n"
@@ -868,17 +838,17 @@ async def check_transfer_status(message: types.Message):
             "💡 Используйте: `дать [сумма] @username`"
         )
         return
-    
+
     time_since_last = current_time - last_transfer_time
-    
+
     if time_since_last < cooldown_seconds:
         remaining_time = int(cooldown_seconds - time_since_last)
         hours = remaining_time // 3600
         minutes = (remaining_time % 3600) // 60
-        
+
         last_transfer_str = datetime.fromtimestamp(last_transfer_time).strftime('%d.%m.%Y в %H:%M')
         next_transfer_str = datetime.fromtimestamp(last_transfer_time + cooldown_seconds).strftime('%H:%M')
-        
+
         await message.reply(
             f"🔄 **Статус переводов**\n\n"
             f"⏳ Вы сможете передавать деньги через *{hours}ч {minutes}м*\n"
@@ -895,3 +865,37 @@ async def check_transfer_status(message: types.Message):
             "⏳ Кулдаун: 10 часов\n\n"
             "💡 Используйте: `дать [сумма] @username`"
         )
+
+# Новый обработчик для команды /админы
+@stat_router.message(F.text.lower().startswith(("админы", "/админы")))
+async def show_online_admins(message: types.Message, bot: Bot):
+    """Показывает количество онлайн администраторов в группе"""
+    chat_id = message.chat.id
+
+    # Получаем список администраторов
+    try:
+        admins = await bot.get_chat_administrators(chat_id)
+        online_admins = [admin for admin in admins if admin.status in ('administrator', 'creator')]
+
+        # Проверяем онлайн-статус администраторов
+        online_count = 0
+        online_usernames = []
+        for admin in online_admins:
+            try:
+                member = await bot.get_chat_member(chat_id, admin.user.id)
+                if member.status == 'member' and not member.user.is_bot:
+                    online_count += 1
+                    online_usernames.append(f"@{member.user.username}" if member.user.username else member.user.first_name)
+            except Exception as e:
+                logger.error(f"Error checking admin {admin.user.id} status: {e}")
+
+        if online_count > 0:
+            usernames_text = "\n".join(online_usernames)
+            await message.reply(f"👮‍♂️ В группе сейчас {online_count} администраторов онлайн:\n{usernames_text}")
+        else:
+            await message.reply(f"👮‍♂️ В группе сейчас {online_count} администраторов онлайн.")
+        logger.info(f"Sent online admins count to user {message.from_user.id} in chat {chat_id}.")
+
+    except Exception as e:
+        logger.error(f"Error getting admins for chat {chat_id}: {e}")
+        await message.reply("❌ Не удалось получить список администраторов. Пожалуйста, попробуйте позже.")
