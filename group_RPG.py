@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 rpg_router = Router(name="rpg_router")
 
-# @rpg_router.message(F.text.lower() == "инвентарьф")
+@rpg_router.message(F.text.lower() == "инвентарьф")
 async def show_inventoryF(message: types.Message, profile_manager: ProfileManager):
     logger.info(f"Received 'инвентарь' command from user {message.from_user.id}.")
     user_id = message.from_user.id
@@ -23,10 +23,10 @@ async def show_inventoryF(message: types.Message, profile_manager: ProfileManage
 
     # Получаем фоны из инвентаря пользователя
     user_backgrounds = await profile_manager.get_user_backgrounds_inventory(user_id)
-    
+
     builder = InlineKeyboardBuilder()
     text = "🎒 **Ваш инвентарь** 🎒\n\n"
-    
+
     # Раздел "Фоны"
     text += "🖼️ **Фоны:**\n"
     if user_backgrounds:
@@ -35,32 +35,32 @@ async def show_inventoryF(message: types.Message, profile_manager: ProfileManage
             if bg_key.startswith("custom:"):
                 bg_name = "Кастомный фон"
                 status = " ✅ (Активно)" if bg_key == active_background_key else ""
-                
+
                 # Кнопка для активации фона
                 builder.row(InlineKeyboardButton(
-                    text=f"🎨 {bg_name}{status}", 
+                    text=f"🎨 {bg_name}{status}",
                     callback_data=f"activate_bg:{bg_key}"
                 ))
             else:
                 bg_info = ShopConfig.SHOP_BACKGROUNDS.get(bg_key)
                 bg_name = bg_info['name'] if bg_info else bg_key
                 status = " ✅ (Активно)" if bg_key == active_background_key else ""
-                
+
                 # Кнопка для активации фона
                 builder.row(InlineKeyboardButton(
-                    text=f"🎨 {bg_name}{status}", 
+                    text=f"🎨 {bg_name}{status}",
                     callback_data=f"activate_bg:{bg_key}"
                 ))
     else:
         text += "У вас пока нет фонов. Загляните в /магазин!\n"
-    
+
     # Добавляем кнопку для возврата к фону по умолчанию
     default_status = " ✅ (Активно)" if active_background_key == 'default' else ""
     builder.row(InlineKeyboardButton(
-        text=f"🔙 Вернуть стандартный фон{default_status}", 
+        text=f"🔙 Вернуть стандартный фон{default_status}",
         callback_data="reset_bg_to_default"
     ))
-    
+
     builder.adjust(1)
     await message.answer(text, reply_markup=builder.as_markup(), parse_mode=ParseMode.MARKDOWN)
     logger.info(f"Inventory list sent to user {user_id}.")

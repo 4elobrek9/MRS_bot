@@ -30,6 +30,7 @@ from core.group.RPG import (
     show_investment,
     show_my_investments
 )
+from group_RPG import show_inventoryF
 from core.group.RPG.investment import show_sell_menu
 from core.group.RP.actions import RPActions
 from core.group.stat.quests_handlers import (
@@ -200,6 +201,7 @@ async def main():
         "трансфер": (check_transfer_status, ["message"]),
         "казино": (casino_main_menu, ["message", "profile_manager"]),
         "инвентарь": (show_inventory, ["message", "profile_manager"]),
+        "инвентарьф": (show_inventoryF, ["message", "profile_manager"]),
         "верстак": (show_workbench_cmd, ["message", "profile_manager"]),
         "магазин": (show_shop, ["message", "profile_manager"]), # Магазин ФОНОВ
         "продать": (show_sell_menu, ["message", "profile_manager"]),
