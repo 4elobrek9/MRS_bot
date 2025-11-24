@@ -1,23 +1,30 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
-from aiogram import Dispatcher, F, Router, Bot
+from typing import Callable, Awaitable, Dict, Any
+from aiogram import Dispatcher, F, Router, Bot, types
 from aiogram.fsm.strategy import FSMStrategy
-from aiogram.enums import ChatType
+from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import BotCommand
 
 # --- Основные импорты из CORE ---
 from core.main.ez_main import *
 from core.main.ollama import *
 from core.main.command import *
 from core.main.dec_command import *
+from core.main.watermark import apply_watermark
+from mistral_group_chat import MistralGroupHandler
+from core.group.group_settings_handler import settings_router
 
 # --- Импорты модулей из CORE ---
 from core.group.stat.manager import ProfileManager
 from core.group.promo import setup_promo_handlers, handle_promo_command
 from core.group.casino import setup_casino_handlers, casino_main_menu
-from core.group.stat.plum_shop_handlers import cmd_plum_shop # Не импортируем plum_shop_router, он уже включен в stat_router
-from core.group.stat.quests_handlers import cmd_show_quests # Импортируем обработчик заданий
+from core.group.stat.plum_shop_handlers import cmd_plum_shop
+from core.group.stat.quests_handlers import cmd_show_quests
 from core.group.RPG import (
     setup_rpg_handlers,
     initialize_on_startup,
@@ -49,14 +56,13 @@ from core.group.stat.quests_handlers import (
 from group_stat import (
     show_profile,
     do_work,
-    show_shop, # Это магазин ФОНОВ (из group_stat.py)
+    show_shop,
     show_top,
-    manage_censor,
     heal_hp,
     give_lumcoins,
     check_transfer_status,
     setup_stat_handlers,
-    show_online_admins # Добавляем новый импорт
+    show_online_admins
 )
 from rp_module_refactored import (
     cmd_check_self_hp,
@@ -67,20 +73,9 @@ from rp_module_refactored import (
 from command import cmd_help
 import database as db
 
-# --- Импорты УТИЛИТ из CORE (Исправленные пути) ---
-from censor_module import * # <<< ИСПРАВЛЕН ПУТЬ
-# from core.utils.stickers import StickerManager
-# from core.utils.jokes import jokes_task
-# from core.group.RP.recovery import periodic_hp_recovery_task
-# from core.group.stat.daily_reset import reset_daily_stats_task, migrate_existing_users_exp
-
-# <<< ДОБАВЛЕНО: Импорт для П-Магазина
-from core.group.stat.plum_shop_handlers import cmd_plum_shop, plum_shop_router
-
 logger = logging.getLogger(__name__)
 
 # --- Константы ---
-BAD_WORDS_FILE = Path("data") / "bad_words.txt"
 STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 
 dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
@@ -139,6 +134,7 @@ async def main():
     logger.info("Инициализация БД.")
     await db.initialize_database()
     await db.create_promo_table()
+    await db.create_group_settings_table() # ❗ NEW: Добавьте вызов создания таблицы
 
     logger.info("Проверка миграции...")
     await migrate_inventory_table()
@@ -157,14 +153,6 @@ async def main():
     except Exception as e:
         logger.error(f"❌ Ошибка RPG: {e}")
 
-    logger.info("Инициализация системы заданий...")
-    try:
-        from core.group.stat.quests_handlers import ensure_quests_db
-        await ensure_quests_db()
-        logger.info("✅ Система заданий инициализирована")
-    except Exception as e:
-        logger.error(f"❌ Ошибка инициализации заданий: {e}")
-
     logger.info("Инициализация стикеров.")
     sticker_manager_instance = StickerManager(cache_file_path=STICKERS_CACHE_FILE)
     await sticker_manager_instance.fetch_stickers(bot)
@@ -174,126 +162,71 @@ async def main():
     dp["sticker_manager"] = sticker_manager_instance
     dp["bot_instance"] = bot
 
-    direct_dispatch_handlers = {
-        "профиль": (show_profile, ["message", "profile_manager", "bot"]),
-        "работать": (do_work, ["message", "profile_manager"]),
-        "топ": (show_top, ["message", "profile_manager"]),
-        "помощь": (cmd_help, ["message"]),
-        "help": (cmd_help, ["message"]),
-        "команды": (cmd_help, ["message"]),
-        "лечить": (heal_hp, ["message", "profile_manager"]),
-        "моё хп": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
-        "мое хп": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
-        "моё здоровье": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
-        "мое здоровье": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
-        "хп": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
-        "здоровье": (cmd_check_self_hp, ["message", "bot", "profile_manager"]),
-        "список действий": (cmd_show_rp_actions_list, ["message", "bot"]),
-        "рп действия": (cmd_show_rp_actions_list, ["message", "bot"]),
-        "список рп": (cmd_show_rp_actions_list, ["message", "bot"]),
-        "команды рп": (cmd_show_rp_actions_list, ["message", "bot"]),
-        "цензура": (manage_censor, ["message", "bot"]),
-        "промо": (handle_promo_command, ["message", "bot", "profile_manager"]),
-        "promo": (handle_promo_command, ["message", "bot", "profile_manager"]),
-        "дать": (give_lumcoins, ["message", "profile_manager"]),
-        "передать": (give_lumcoins, ["message", "profile_manager"]),
-        "перевод": (check_transfer_status, ["message"]),
-        "трансфер": (check_transfer_status, ["message"]),
-        "казино": (casino_main_menu, ["message", "profile_manager"]),
-        "инвентарь": (show_inventory, ["message", "profile_manager"]),
-        "инвентарьф": (show_inventoryF, ["message", "profile_manager"]),
-        "верстак": (show_workbench_cmd, ["message", "profile_manager"]),
-        "магазин": (show_shop, ["message", "profile_manager"]), # Магазин ФОНОВ
-        "продать": (show_sell_menu, ["message", "profile_manager"]),
-        "обмен": (start_trade, ["message", "profile_manager"]),
-        "аукцион": (show_auction, ["message", "profile_manager"]),
-        "рынок": (show_market, ["message", "profile_manager"]),
-        "инвестировать": (show_investment, ["message", "profile_manager"]),
-        "мои инвестиции": (show_my_investments, ["message", "profile_manager"]),
-        "пмагазин": (cmd_plum_shop, ["message", "profile_manager"]),
-        "pshop": (cmd_plum_shop, ["message", "profile_manager"]),
-        "задания": (cmd_show_quests, ["message", "profile_manager"]),
-        "квесты": (cmd_show_quests, ["message", "profile_manager"]),
-        "админы": (show_online_admins, ["message", "bot"]) # Добавляем новый обработчик
-    }
+    # Регистрация роутера настроек
+    dp.include_router(settings_router) # NEW: Регистрация роутера настроек
 
-    for action in RPActions.SORTED_COMMANDS_FOR_PARSING:
-        if action not in direct_dispatch_handlers:
-            direct_dispatch_handlers[action] = (handle_rp_action_via_text, ["message", "bot", "profile_manager"])
+    # Инициализация Mistral Group Handler
+    MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+    mistral_task = None
+    mistral_handler = None
 
-    non_slash_commands_to_exclude = list(direct_dispatch_handlers.keys())
-    # <<< ИЗМЕНЕНИЕ: Добавляем "магазин", "пмагазин", "pshop" в исключения цензуры
-    non_slash_commands_to_exclude.extend(["магазин", "пмагазин", "pshop"])
-    non_slash_commands_to_exclude.sort(key=len, reverse=True)
+    if MISTRAL_API_KEY:
+        logger.info("🔑 Mistral API Key найден, инициализирую Mistral Group Handler...")
+        try:
+            bot_info = await bot.get_me()
+            bot_username = bot_info.username
 
-    logger.info("Настройка цензуры.")
-    setup_censor_handlers(
-        main_dp=dp,
-        bad_words_file_path=BAD_WORDS_FILE,
-        non_slash_command_prefixes=non_slash_commands_to_exclude,
-        direct_dispatch_handlers=direct_dispatch_handlers,
-        profile_manager_instance=profile_manager,
-        bot_instance=bot
-    )
-    logger.info("Цензура интегрирована.")
+            mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username)
+            dp["mistral_handler"] = mistral_handler
 
-    group_text_router = Router(name="group_text_router")
-    group_text_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
-    logger.info("Создан групповой роутер.")
+            # Запуск фоновой задачи для вопросов (12:00-00:00, раз в час)
+            mistral_task = asyncio.create_task(mistral_handler.periodic_question_task())
 
-    logger.info("Включение stat_router.")
-    setup_stat_handlers(main_dp=group_text_router) # Эта функция из group_stat.py включает plum_shop_router
+            # Регистрация LLM хендлера для всех сообщений в группах/супергруппах
+            dp.message.register(
+                mistral_handler.handle_all_group_messages,
+                F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP})
+            )
+            logger.info("Mistral Group Chat LLM feature ENABLED.")
+        except Exception as e:
+            logger.warning("Mistral Group Chat LLM feature DISABLED (MISTRAL_API_KEY or bot_username missing).")
+    else:
+        logger.warning("⚠️ MISTRAL_API_KEY не найден.")
 
-    logger.info("Включение RPG handlers.")
-    setup_rpg_handlers(main_dp=group_text_router) # Эта функция из core/group/RPG/MAINrpg.py
+    # Регистрация команд с Telegram
+    commands = [
+        BotCommand(command="start", description="🚀 Начать работу с ботом"),
+        BotCommand(command="help", description="❓ Показать полную справку и список команд"),
 
-    logger.info("Включение rp_router.")
-    setup_rp_handlers( # Эта функция из rp_module_refactored.py
-        main_dp=group_text_router,
-        bot_instance=bot,
-        profile_manager_instance=profile_manager,
-        database_module=db
-    )
+        BotCommand(command="mode", description="💬 Сменить режим общения (доступно только в ЛС)"),
 
-    logger.info("Настройка казино.")
-    setup_casino_handlers(main_dp=group_text_router, profile_manager=profile_manager)
+        # RPG / Экономика
+        BotCommand(command="profile", description="👤 Ваш игровой профиль (также 'профиль')"),
+        BotCommand(command="inventory", description="🎒 Инвентарь и фоны (также 'инвентарь')"),
+        BotCommand(command="work", description="💰 Выполнить работу (также 'работать')"),
+        BotCommand(command="top", description="🏆 Топ игроков по уровню (также 'топ')"),
+        BotCommand(command="shop", description="🛒 Магазин предметов (также 'магазин')"),
+        BotCommand(command="pshop", description="💎 Магазин за PLUM-коины (также 'пмагазин')"),
+        BotCommand(command="quests", description="🗓️ Ежедневные/еженедельные задания (также 'задания')"),
 
-    dp.include_router(group_text_router)
-    logger.info("group_text_router интегрирован.")
+        # Экономические взаимодействия
+        BotCommand(command="give", description="💸 Перевести Lumcoins пользователю (/give 100 @user)"),
+        BotCommand(command="invest", description="📈 Инвестировать LUM под проценты (также 'инвестировать')"),
+        BotCommand(command="auction", description="🔨 Показать активные аукционы (также 'аукцион')"),
+        BotCommand(command="market", description="🏷️ Рынок для торговли с игроками (также 'рынок')"),
 
-    private_router = Router(name="private_router")
-    private_router.message.filter(F.chat.type == ChatType.PRIVATE)
-    logger.info("Создан приватный роутер.")
+        # RP / Здоровье
+        BotCommand(command="myhp", description="❤️ Проверить здоровье (также 'мое здоровье')"),
+        BotCommand(command="heal", description="💊 Использовать аптечку (также 'лечить')"),
+        BotCommand(command="rpactions", description="⚔️ Список доступных RP действий (также 'рп действия')"),
 
-    logger.info("Регистрация команд для ЛС.")
-    private_router.message(Command("start"))(cmd_start)
-    private_router.message(Command("mode"))(cmd_mode)
-    private_router.message(Command("stats"))(cmd_stats)
-    private_router.message(Command("joke"))(cmd_joke)
-    private_router.message(Command("check_value"))(cmd_check_value)
-    private_router.message(Command("subscribe_value", "val"))(cmd_subscribe_value)
-    private_router.message(Command("unsubscribe_value", "sval"))(cmd_unsubscribe_value)
-    private_router.message(Command("help"))(cmd_help)
-    private_router.message(F.photo)(photo_handler)
-    private_router.message(F.voice)(voice_handler_msg)
-    private_router.message(F.text)(handle_text_message)
-    logger.info("Обработчики ЛС зарегистрированы.")
+        # Разное
+        BotCommand(command="joke", description="🤣 Случайный анекдот (также 'анекдот')"),
+        BotCommand(command="stats", description="📊 Статистика использования бота (также 'статистика')"),
+        BotCommand(command="dop_func", description="⚙️ Настройки и доп. функции группы (только для админов)"), # NEW COMMAND
+    ]
 
-    logger.info("Настройка промокодов.")
-    setup_promo_handlers(
-        main_dp=dp,
-        bot_instance=bot,
-        profile_manager_instance=profile_manager
-    )
-
-    dp.include_router(private_router)
-    logger.info("private_router интегрирован.")
-
-    logger.info("Запуск фоновых задач.")
-    jokes_bg_task = asyncio.create_task(jokes_task(bot))
-    rp_recovery_bg_task = asyncio.create_task(periodic_hp_recovery_task(bot, profile_manager, db))
-    daily_reset_task = asyncio.create_task(reset_daily_stats_task(profile_manager))
-    await migrate_existing_users_exp()
+    await bot.set_my_commands(commands)
 
     logger.info("Запуск поллинга...")
     try:
@@ -302,14 +235,13 @@ async def main():
         logger.critical(f"Ошибка поллинга: {e}")
     finally:
         logger.info("Остановка бота...")
-        jokes_bg_task.cancel()
-        rp_recovery_bg_task.cancel()
-        daily_reset_task.cancel()
-        try:
-            await asyncio.gather(jokes_bg_task, rp_recovery_bg_task, daily_reset_task, return_exceptions=True)
-            logger.info("Фоновые задачи отменены.")
-        except asyncio.CancelledError:
-            logger.info("Фоновые задачи отменены.")
+
+        # Отмена всех фоновых задач, включая Mistral
+        tasks_to_cancel = [jokes_bg_task, rp_recovery_bg_task, daily_reset_task, mistral_task]
+        tasks_to_cancel = [t for t in tasks_to_cancel if t is not None]
+
+        for task in tasks_to_cancel:
+            task.cancel()
 
         await profile_manager.close()
         logger.info("ProfileManager закрыт.")

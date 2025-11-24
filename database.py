@@ -156,12 +156,6 @@ async def initialize_database() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(user_id) ON DELETE CASCADE
             )
         ''')
-        await db.execute('''
-            CREATE TABLE IF NOT EXISTS group_settings (
-                group_id INTEGER PRIMARY KEY,
-                censor_enabled BOOLEAN NOT NULL DEFAULT FALSE
-            )
-        ''')
         await db.commit()
     async with aiosqlite.connect('profiles.db') as conn:
         await conn.execute('''
@@ -448,7 +442,7 @@ async def set_user_active_background(user_id: int, background_key: str) -> None:
         try:
             cursor = await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profiles'")
             table_exists = await cursor.fetchone()
-            
+
             if not table_exists:
                 await db.execute('''
                     CREATE TABLE user_profiles (
@@ -466,45 +460,25 @@ async def set_user_active_background(user_id: int, background_key: str) -> None:
                 ''')
                 await db.commit()
                 logger.info("Created user_profiles table in main database")
-            
+
             cursor = await db.execute("PRAGMA table_info(user_profiles)")
             columns = await cursor.fetchall()
             has_active_background = any('active_background' in column for column in columns)
-            
+
             if not has_active_background:
                 await db.execute('ALTER TABLE user_profiles ADD COLUMN active_background TEXT DEFAULT "default"')
                 await db.commit()
                 logger.info("Added active_background column to user_profiles table")
-            
+
             await db.execute(
                 'UPDATE user_profiles SET active_background = ? WHERE user_id = ?',
                 (background_key, user_id)
             )
             await db.commit()
             logger.info(f"User {user_id} active background set to '{background_key}' in main database.")
-            
+
         except Exception as e:
             logger.error(f"Error setting active background in main database: {e}")
-
-
-async def set_group_censor_setting(group_id: int, enabled: bool):
-    """Устанавливает настройку цензуры для группы"""
-    async with aiosqlite.connect(DB_FILE) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO group_settings (group_id, censor_enabled) VALUES (?, ?)",
-            (group_id, enabled)
-        )
-        await db.commit()
-
-async def get_group_censor_setting(group_id: int) -> bool:
-    """Получает настройку цензуры для группы"""
-    async with aiosqlite.connect(DB_FILE) as db:
-        cursor = await db.execute(
-            "SELECT censor_enabled FROM group_settings WHERE group_id = ?",
-            (group_id,)
-        )
-        result = await cursor.fetchone()
-        return result[0] if result else False
 
 async def get_group_admins(group_id: int) -> List[int]:
     """Получает список администраторов группы"""
@@ -554,3 +528,51 @@ async def update_casino_stats(self, user_id: int, win_streak: int, roulette_loss
         logger.error(f"Error updating casino stats for user {user_id}: {e}")
         return False
 
+# Добавление функций для управления настройками группы
+async def create_group_settings_table():
+    """Создает таблицу для хранения настроек групп (напр., AI status) и добавляет колонку ai_enabled, если ее нет."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        # 1. Создаем таблицу, если ее нет (с правильной схемой)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS group_settings (
+                chat_id INTEGER PRIMARY KEY,
+                ai_enabled BOOLEAN DEFAULT 1 -- Колонка, из-за которой произошла ошибка
+            )
+        ''')
+
+        # 2. ОДНОКРАТНАЯ МИГРАЦИЯ: Добавляем колонку ai_enabled, если таблица существовала без нее
+        try:
+            # Пытаемся добавить колонку. Если она уже есть, SQLite выдаст OperationalError.
+            await db.execute("ALTER TABLE group_settings ADD COLUMN ai_enabled BOOLEAN DEFAULT 1")
+            logger.info("Column 'ai_enabled' successfully added to group_settings table.")
+        except aiosqlite.OperationalError as e:
+            # Игнорируем ошибку, если она сообщает о дублировании колонки (значит, она уже есть)
+            if "duplicate column name" in str(e).lower():
+                pass
+            else:
+                # Если это другая ошибка, логируем ее
+                logger.error(f"Error during ALTER TABLE group_settings: {e}")
+
+        await db.commit()
+
+async def get_ai_status(chat_id: int) -> bool:
+    """Получить статус включения AI для группы. По умолчанию True."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT ai_enabled FROM group_settings WHERE chat_id = ?",
+            (chat_id,)
+        )
+        result = await cursor.fetchone()
+        # Если записи нет (result is None), возвращаем True (включено по умолчанию)
+        # Если запись есть, возвращаем результат (0 или 1), преобразованный в bool
+        return bool(result[0]) if result else True
+
+async def set_ai_status(chat_id: int, enabled: bool):
+    """Установить статус включения AI для группы."""
+    status = 1 if enabled else 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO group_settings (chat_id, ai_enabled) VALUES (?, ?)",
+            (chat_id, status)
+        )
+        await db.commit()

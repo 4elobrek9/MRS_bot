@@ -2,23 +2,21 @@ from core.group.stat.smain import *
 from core.group.stat.config import *
 from core.group.stat.manager import ProfileManager
 from core.group.stat.shop_config import *
-import string # Добавлен импорт string
-import time # Добавлен импорт time
-import random # Добавлен импорт random
+import string
+import time
+import random
 from database import add_item_to_inventory, set_user_active_background, get_user_rp_stats, update_user_rp_stats, DB_PATH
-import asyncio  # Добавьте эту строку в начале файла
-import aiosqlite  # Убедитесь, что этот импорт тоже есть
+import asyncio
+import aiosqlite
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import re
 from urllib.parse import urlparse
-# Добавьте эти импорты если их нет:
 from aiogram.enums import ChatType
-from database import set_group_censor_setting, get_group_censor_setting, get_group_admins
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink, hbold, hcode
-from aiogram.enums import ParseMode # Добавлен импорт ParseMode
+from aiogram.enums import ParseMode
 from core.group.stat.config import WorkConfig, ProfileConfig
 
 # Импортируем роутеры
@@ -36,21 +34,15 @@ stat_router = Router(name="stat_router")
 stat_router.include_router(plum_shop_router)
 stat_router.include_router(quests_router)
 
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-import re
-from urllib.parse import urlparse
-
 __all__ = [
     'show_profile',
     'do_work',
     'show_shop',
     'show_top',
-    'manage_censor',
     'heal_hp',
     'give_lumcoins',
     'check_transfer_status',
-    'plum_shop_router' # <<< ДОБАВЛЕНО
+    'plum_shop_router'
 ]
 
 class CustomBackgroundStates(StatesGroup):
@@ -80,7 +72,7 @@ async def process_buy_custom_background(callback: types.CallbackQuery, profile_m
             "message_id": callback.message.message_id,
             "price": bg_price,
             "lumcoins_before": user_lumcoins,
-            "timestamp": time.time()  # Добавляем timestamp
+            "timestamp": time.time()
         }
 
         # Переходим в состояние ожидания URL
@@ -288,7 +280,7 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
         )
 
 # В файле group_stat.py
-@stat_router.message(F.text.lower().startswith(("профиль", "/профиль")))
+@stat_router.message(Command("profile") | F.text.lower().in_({"профиль", "мой профиль", "stats"}))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
 
@@ -319,7 +311,7 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
     logger.info(f"Sending profile image to user {message.from_user.id}.")
     await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
 
-@stat_router.message(F.text.lower().startswith(("лечить", "/лечить")))
+@stat_router.message(Command("heal") | F.text.lower().in_({"лечить", "мое здоровье", "хп"}))
 async def heal_hp(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'лечить' command from user {user_id}.")
@@ -362,7 +354,7 @@ async def heal_hp(message: types.Message, profile_manager: ProfileManager):
     )
     logger.info(f"User {user_id} healed {heal_amount} HP for {cost} Lumcoins.")
 
-@stat_router.message(F.text.lower().startswith(("работать", "/работать")))
+@stat_router.message(Command("work") | F.text.lower().in_({"работать", "работа", "поработать", "на работу"}))
 async def do_work(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'работать' command from user {user_id}.")
@@ -387,7 +379,7 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
     await message.reply(f"✅ Вы успешно {task_name} и заработали {lumcoins_reward} Lumcoins!")
     logger.info(f"User {user_id} successfully worked, earned {lumcoins_reward} Lumcoins. Task: '{task_name}'.")
 
-@stat_router.message(F.text.lower().startswith(("магазин", "/магазин")))
+@stat_router.message(Command("shop") | F.text.lower().in_({"магазин", "магазин фонов"}))
 async def show_shop(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'магазин' command from user {user_id}.")
@@ -479,7 +471,7 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             reply_markup=None
         )
 
-@stat_router.message(F.text.lower().startswith(("топ", "/топ")))
+@stat_router.message(Command("top") | F.text.lower().in_({"топ", "топ игроков"}))
 async def show_top(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'топ' command from user {user_id}.")
@@ -587,104 +579,7 @@ def setup_stat_handlers(main_dp: Router):
     logger.info("Registering stat router handlers.")
     logger.info("Stat router included in Dispatcher.")
 
-@stat_router.message(F.text.lower().startswith(("цензура", "/цензура")))
-async def manage_censor(message: types.Message, bot: Bot):
-    """Управление настройками цензуры в группе"""
-    user_id = message.from_user.id
-    chat_id = message.chat.id
-
-    # Проверяем права администратора
-    try:
-        member = await bot.get_chat_member(chat_id, user_id)
-        if member.status not in ('administrator', 'creator'):
-            await message.reply("❌ Эта команда доступна только администраторам группы.")
-            return
-    except Exception as e:
-        logger.error(f"Error checking admin status for user {user_id} in chat {chat_id}: {e}")
-        await message.reply("❌ Не удалось проверить ваши права администратора.")
-        return
-
-    text = message.text.lower().split()
-    if len(text) < 2:
-        # Показываем текущий статус цензуры
-        is_enabled = await get_group_censor_setting(chat_id)
-        status = "включена" if is_enabled else "выключена"
-        await message.reply(f"🔧 Цензура в этой группе {status}.\n\n"
-                          "Используйте:\n"
-                          "• `цензура вкл` - включить\n"
-                          "• `цензура выкл` - выключить")
-        return
-
-    action = text[1]
-    if action in ["вкл", "on", "enable"]:
-        await set_group_censor_setting(chat_id, True)
-        await message.reply("✅ Цензура включена. Теперь буду следить за плохими словами!")
-    elif action in ["выкл", "off", "disable"]:
-        await set_group_censor_setting(chat_id, False)
-        await message.reply("❌ Цензура выключена. Могу ругаться сколько угодно!")
-    else:
-        await message.reply("❌ Неизвестная команда. Используйте `цензура вкл` или `цензура выкл`")
-
-async def find_user_by_username(username: str):
-    """
-    Ищет пользователя по username в базе данных профилей
-    """
-    try:
-        async with aiosqlite.connect('profiles.db') as conn:
-            # Удаляем @ из начала, если он есть
-            clean_username = username.lstrip('@')
-            cursor = await conn.execute(
-                'SELECT user_id, username, first_name FROM users WHERE username = ?',
-                (clean_username,)
-            )
-            user_data = await cursor.fetchone()
-
-            if user_data:
-                from aiogram.types import User
-                return User(
-                    id=user_data[0],
-                    username=user_data[1],
-                    first_name=user_data[2],
-                    is_bot=False
-                )
-    except Exception as e:
-        logger.error(f"Error finding user by username {username}: {e}")
-
-    return None
-
-async def get_last_transfer_time(user_id: int) -> float:
-    """Получает время последнего перевода пользователя"""
-    try:
-        async with aiosqlite.connect('profiles.db') as conn:
-            # Создаем таблицу если её нет
-            await conn.execute('''CREATE TABLE IF NOT EXISTS transfer_history (
-                user_id INTEGER PRIMARY KEY,
-                last_transfer_time REAL DEFAULT0,
-                total_transferred INTEGER DEFAULT0
-            )''')
-            await conn.commit()
-
-            cursor = await conn.execute(
-                'SELECT last_transfer_time FROM transfer_history WHERE user_id = ?',
-                (user_id,)
-            )
-            result = await cursor.fetchone()
-            return result[0] if result else 0.0
-    except Exception as e:
-        logger.error(f"Error getting last transfer time for user {user_id}: {e}")
-        return 0.0
-
-async def update_last_transfer_time(user_id: int, transfer_time: float):
-    """Обновляет время последнего перевода пользователя"""
-    try:
-        async with aiosqlite.connect('profiles.db') as conn:
-            await conn.execute('''INSERT OR REPLACE INTO transfer_history (user_id, last_transfer_time, total_transferred)
-                VALUES (?, ?, COALESCE((SELECT total_transferred FROM transfer_history WHERE user_id = ?), 0) + 1)''', (user_id, transfer_time, user_id))
-            await conn.commit()
-    except Exception as e:
-        logger.error(f"Error updating last transfer time for user {user_id}: {e}")
-
-@stat_router.message(F.text.lower().startswith(("дать", "/дать", "передать", "/передать")))
+@stat_router.message(Command("give") | F.text.lower().in_({"дать", "передать"}))
 async def give_lumcoins(message: types.Message, profile_manager: ProfileManager):
     """Передача Lumcoins другому пользователю с ограничениями"""
     user_id = message.from_user.id
@@ -820,7 +715,7 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         logger.error(f"Error transferring Lumcoins from {user_id} to {target_user.id}: {e}")
         await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
 
-@stat_router.message(F.text.lower().startswith(("перевод", "/перевод", "трансфер", "/трансфер")))
+@stat_router.message(Command("transfer") | F.text.lower().in_({"перевод", "трансфер"}))
 async def check_transfer_status(message: types.Message):
     """Показывает статус перевода и время до следующего возможного"""
     user_id = message.from_user.id
@@ -833,7 +728,7 @@ async def check_transfer_status(message: types.Message):
         await message.reply(
             "🔄 **Статус переводов**\n\n"
             "✅ Вы можете переводить деньги сейчас!\n"
-            "💰 Максимум: 50,000 LUM за раз\n"
+            "� Максимум: 50,000 LUM за раз\n"
             "⏳ Кулдаун: 10 часов\n\n"
             "💡 Используйте: `дать [сумма] @username`"
         )
@@ -867,7 +762,7 @@ async def check_transfer_status(message: types.Message):
         )
 
 # Новый обработчик для команды /админы
-@stat_router.message(F.text.lower().startswith(("админы", "/админы")))
+@stat_router.message(Command("admins") | F.text.lower().in_({"админы", "онлайн админы"}))
 async def show_online_admins(message: types.Message, bot: Bot):
     """Показывает количество онлайн администраторов в группе"""
     chat_id = message.chat.id

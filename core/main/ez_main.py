@@ -35,8 +35,6 @@ import time
 import database as db # Модуль для работы с общей базой данных
 from group_stat import setup_stat_handlers, ProfileManager # Модуль для статистики группы и профилей
 from rp_module_refactored import setup_rp_handlers, periodic_hp_recovery_task # Модуль для RP-системы
-import censor_module
-
 # Загрузка переменных окружения из .env файла
 dotenv.load_dotenv()
 
@@ -96,10 +94,11 @@ else:
 
 CHANNEL_ID_STR = os.getenv("CHANNEL_ID")
 CHANNEL_ID: Optional[int] = None
-if CHANNEL_ID_STR and CHANNEL_ID_STR.isdigit():
-    CHANNEL_ID = int(CHANNEL_ID_STR)
-else:
-    logger.warning("CHANNEL_ID is not set or invalid. Jokes task will be disabled.")
+if CHANNEL_ID_STR:
+    try:
+        CHANNEL_ID = int(CHANNEL_ID_STR)
+    except ValueError:
+        logger.warning("CHANNEL_ID is not set or invalid. Jokes task will be disabled.")
 
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()

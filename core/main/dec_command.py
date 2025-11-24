@@ -1,6 +1,11 @@
-from core.main.ez_main import *
-from core.main.ollama import *
-from main import *
+from core.main.ez_main import dp, logger
+from core.main.ollama import NeuralAPI, safe_send_message, typing_animation, fetch_random_joke, StickerManager
+from core.group.stat.manager import ProfileManager
+from aiogram.filters import Command
+from aiogram.types import Message
+from aiogram import F
+from aiogram.enums import ChatType
+from aiogram import Bot
 
 MAX_RATING_OPPORTUNITIES = 5
 
