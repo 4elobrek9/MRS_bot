@@ -23,7 +23,7 @@ class MarketStates(StatesGroup):
 class AuctionStates(StatesGroup):
     waiting_for_price = State()
 
-def setup_rpg_handlers(main_dp: Router):
+def setup_rpg_handlers(main_dp, bot_instance, profile_manager_instance, database_module):
     main_dp.include_router(rpg_router)
     logger.info("RPG router included.")
 

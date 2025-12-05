@@ -129,6 +129,30 @@ class MistralGroupHandler:
         if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP] or message.from_user.is_bot:
             return
 
+        # ❗ НОВАЯ ПРОВЕРКА 1: Пропускаем явные слеш-команды.
+        if message.text and message.text.startswith('/'):
+            return # Если это команда (/help, /start, /dop_func), LLM игнорирует ее.
+
+        # ❗ НОВАЯ ПРОВЕРКА 2: Пропускаем текстовые команды.
+        message_text = message.text.lower().strip() if message.text else ""
+
+        # Список всех текстовых команд, которые НЕ должны быть перехвачены LLM
+        text_commands_to_ignore = {
+            "профиль", "топ", "работать", "инвентарь", "верстак", "магазин",
+            "продать", "обмен", "аукцион", "рынок", "инвестировать",
+            "задания", "квесты", "пмагазин", "pshop",
+            "доп. функции", "dop_func", # Ваша новая команда
+            "статистика", "stats", "анекдот", "joke",
+            "heal", "myhp", "myhealth", "health" # RP команды
+        }
+
+        # Удаляем упоминание бота, если оно есть (например, "профиль @botname")
+        if self.bot_username and message_text.endswith(f"@{self.bot_username}".lower()):
+             message_text = message_text.replace(f"@{self.bot_username}".lower(), "").strip()
+
+        if message_text in text_commands_to_ignore:
+            return # Если текст совпадает с командой, LLM игнорирует его.
+
         # ❗ NEW: Проверяем статус LLM в группе
         if not await db.get_ai_status(chat_id):
             return # AI выключен, игнорируем сообщение

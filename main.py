@@ -72,6 +72,7 @@ from rp_module_refactored import (
 )
 from command import cmd_help
 import database as db
+from core.main.jokes_manager import JokesManager
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,9 @@ async def main():
     sticker_manager_instance = StickerManager(cache_file_path=STICKERS_CACHE_FILE)
     await sticker_manager_instance.fetch_stickers(bot)
 
+    # Инициализация менеджера анекдотов
+    jokes_manager = JokesManager()
+
     logger.info("Передача зависимостей.")
     dp["profile_manager"] = profile_manager
     dp["sticker_manager"] = sticker_manager_instance
@@ -164,6 +168,13 @@ async def main():
 
     # Регистрация роутера настроек
     dp.include_router(settings_router) # NEW: Регистрация роутера настроек
+
+    # Регистрация всех специализированных роутеров для команд
+    setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
+    setup_rpg_handlers(dp, bot, profile_manager, db)
+    setup_promo_handlers(dp, profile_manager, db)
+    setup_casino_handlers(dp, profile_manager)
+    setup_rp_handlers(dp, bot, profile_manager, db)
 
     # Инициализация Mistral Group Handler
     MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")

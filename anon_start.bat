@@ -1,3 +1,3 @@
 @echo off
-start "" pythonw.exe "%~dp0GUImain.py
+start "" python.exe "main.py
 exit

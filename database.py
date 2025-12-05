@@ -530,28 +530,43 @@ async def update_casino_stats(self, user_id: int, win_streak: int, roulette_loss
 
 # Добавление функций для управления настройками группы
 async def create_group_settings_table():
-    """Создает таблицу для хранения настроек групп (напр., AI status) и добавляет колонку ai_enabled, если ее нет."""
+    """Создает таблицу для хранения настроек групп (напр., AI status)."""
     async with aiosqlite.connect(DB_PATH) as db:
-        # 1. Создаем таблицу, если ее нет (с правильной схемой)
+
+        # ❗ ВРЕМЕННЫЙ ФИКС: Удаляем таблицу, если она сломана (нет колонки chat_id)
+        # Это нужно, чтобы исправить ошибку "no such column: chat_id"
+        try:
+            # Проверяем наличие колонки chat_id
+            cursor = await db.execute("PRAGMA table_info(group_settings)")
+            columns = [col[1] for col in await cursor.fetchall()]
+
+            if 'chat_id' not in columns:
+                logger.warning("group_settings table is corrupted (missing 'chat_id'). Dropping and recreating table.")
+                await db.execute("DROP TABLE IF EXISTS group_settings")
+                # Здесь мы ничего не коммитим, чтобы весь процесс создания/миграции
+                # был одной атомарной операцией.
+
+        except aiosqlite.OperationalError:
+            # Таблица group_settings еще не существует, поэтому PRAGMA вызывает ошибку. Игнорируем.
+            pass
+
+        # 1. Создаем таблицу с ПРАВИЛЬНОЙ схемой (или пересоздаем, если она была удалена выше)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS group_settings (
                 chat_id INTEGER PRIMARY KEY,
-                ai_enabled BOOLEAN DEFAULT 1 -- Колонка, из-за которой произошла ошибка
+                ai_enabled BOOLEAN DEFAULT 1 -- Колонка, из-за которой была первая ошибка
             )
         ''')
 
-        # 2. ОДНОКРАТНАЯ МИГРАЦИЯ: Добавляем колонку ai_enabled, если таблица существовала без нее
+        # 2. Удалите этот блок try/except после первого успешного запуска
+        # Оставляем его, на случай если таблица существует, но `ai_enabled` нет
         try:
-            # Пытаемся добавить колонку. Если она уже есть, SQLite выдаст OperationalError.
             await db.execute("ALTER TABLE group_settings ADD COLUMN ai_enabled BOOLEAN DEFAULT 1")
             logger.info("Column 'ai_enabled' successfully added to group_settings table.")
         except aiosqlite.OperationalError as e:
-            # Игнорируем ошибку, если она сообщает о дублировании колонки (значит, она уже есть)
             if "duplicate column name" in str(e).lower():
                 pass
-            else:
-                # Если это другая ошибка, логируем ее
-                logger.error(f"Error during ALTER TABLE group_settings: {e}")
+            # Здесь мы можем игнорировать другие ошибки, так как мы только что удалили и создали таблицу выше
 
         await db.commit()
 
