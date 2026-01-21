@@ -570,7 +570,7 @@ async def create_group_settings_table():
 
         await db.commit()
 
-async def get_ai_status(chat_id: int) -> bool:
+async def get_ai_status(migrate_to_chat_id: int) -> bool:
     """Получить статус включения AI для группы. По умолчанию True."""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
@@ -582,7 +582,7 @@ async def get_ai_status(chat_id: int) -> bool:
         # Если запись есть, возвращаем результат (0 или 1), преобразованный в bool
         return bool(result[0]) if result else True
 
-async def set_ai_status(chat_id: int, enabled: bool):
+async def set_ai_status(migrate_to_chat_id: int, enabled: bool):
     """Установить статус включения AI для группы."""
     status = 1 if enabled else 0
     async with aiosqlite.connect(DB_PATH) as db:

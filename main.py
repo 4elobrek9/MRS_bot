@@ -248,11 +248,11 @@ async def main():
         logger.info("Остановка бота...")
 
         # Отмена всех фоновых задач, включая Mistral
-        tasks_to_cancel = [jokes_bg_task, rp_recovery_bg_task, daily_reset_task, mistral_task]
-        tasks_to_cancel = [t for t in tasks_to_cancel if t is not None]
+        # tasks_to_cancel = [jokes_bg_task, rp_recovery_bg_task, daily_reset_task, mistral_task]
+        # tasks_to_cancel = [t for t in tasks_to_cancel if t is not None]
 
-        for task in tasks_to_cancel:
-            task.cancel()
+        # for task in tasks_to_cancel:
+        #     task.cancel()
 
         await profile_manager.close()
         logger.info("ProfileManager закрыт.")

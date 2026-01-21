@@ -16,7 +16,8 @@ settings_router = Router(name="settings_router")
 
 # --- Главное меню настроек (команда "доп. функции") ---
 
-@settings_router.message(Command("dop_func") | F.text.lower().in_({"доп. функции", "дополнительные функции", "настройки", "settings"}))
+@settings_router.message(Command("dop_func"))
+@settings_router.message(F.text.lower().in_({"доп. функции", "дополнительные функции", "настройки", "settings"}))
 async def cmd_show_group_settings(message: types.Message, bot: Bot):
     """Показывает меню дополнительных функций/настроек группы."""
     if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
