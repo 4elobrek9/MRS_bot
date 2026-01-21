@@ -40,8 +40,8 @@
 
 1.  **Клонируйте репозиторий:**
     ```bash
-    git clone <ссылка_на_ваш_репозиторий>
-    cd tg_bot
+    git clone https://github.com/4elobrek9/MRS_bot
+    cd MRS_bot
     ```
 2.  **Создайте виртуальное окружение (рекомендуется):**
     ```bash
