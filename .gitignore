@@ -9,5 +9,4 @@ __pycache__
 *.db
 
 # log
-*.txt
 *.log
