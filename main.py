@@ -135,7 +135,7 @@ async def main():
     logger.info("Инициализация БД.")
     await db.initialize_database()
     await db.create_promo_table()
-    await db.create_group_settings_table() # ❗ NEW: Добавьте вызов создания таблицы
+    await db.create_group_settings_table()
 
     logger.info("Проверка миграции...")
     await migrate_inventory_table()
@@ -167,7 +167,7 @@ async def main():
     dp["bot_instance"] = bot
 
     # Регистрация роутера настроек
-    dp.include_router(settings_router) # NEW: Регистрация роутера настроек
+    dp.include_router(settings_router)
 
     # Регистрация всех специализированных роутеров для команд
     setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
