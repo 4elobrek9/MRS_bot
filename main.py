@@ -79,7 +79,9 @@ logger = logging.getLogger(__name__)
 # --- Константы ---
 STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 
-dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
+# ВАЖНО: используем единый Dispatcher из core.main.ez_main,
+# чтобы все декораторы из core.main.dec_command регистрировались
+# в том же экземпляре, который запускается в polling.
 
 async def migrate_inventory_table():
     try:
@@ -97,7 +99,7 @@ async def migrate_inventory_table():
                         user_id INTEGER,
                         item_key TEXT,
                         item_type TEXT,
-                        quantity INTEGER DEFAULT1,
+                        quantity INTEGER DEFAULT 1,
                         item_data TEXT,
                         acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (user_id, item_key)
@@ -172,7 +174,7 @@ async def main():
     # Регистрация всех специализированных роутеров для команд
     setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
     setup_rpg_handlers(dp, bot, profile_manager, db)
-    setup_promo_handlers(dp, profile_manager, db)
+    setup_promo_handlers(dp, bot, profile_manager)
     setup_casino_handlers(dp, profile_manager)
     setup_rp_handlers(dp, bot, profile_manager, db)
 
@@ -184,7 +186,7 @@ async def main():
     if MISTRAL_API_KEY:
         logger.info("🔑 Mistral API Key найден, инициализирую Mistral Group Handler...")
         try:
-            bot_info = await bot.get_me()
+            bot_info = await asyncio.wait_for(bot.get_me(), timeout=10)
             bot_username = bot_info.username
 
             mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username)
@@ -200,7 +202,10 @@ async def main():
             )
             logger.info("Mistral Group Chat LLM feature ENABLED.")
         except Exception as e:
-            logger.warning("Mistral Group Chat LLM feature DISABLED (MISTRAL_API_KEY or bot_username missing).")
+            logger.warning(
+                "Mistral Group Chat LLM feature DISABLED (%s).",
+                e
+            )
     else:
         logger.warning("⚠️ MISTRAL_API_KEY не найден.")
 
