@@ -203,7 +203,7 @@ async def main():
             logger.info("Mistral Group Chat LLM feature ENABLED.")
         except Exception as e:
             logger.warning(
-                "Mistral Group Chat LLM feature DISABLED (%s).",
+                "Mistral Group Chat LLM feature DISABLED (%r).",
                 e
             )
     else:
@@ -245,7 +245,7 @@ async def main():
     try:
         await asyncio.wait_for(bot.set_my_commands(commands), timeout=5)
     except Exception as e:
-        logger.warning("Не удалось быстро установить команды бота: %s", e)
+        logger.warning("Не удалось быстро установить команды бота: %r", e)
 
     logger.info("Запуск поллинга...")
     try:
