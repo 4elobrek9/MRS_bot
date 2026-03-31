@@ -46,7 +46,7 @@ async def cmd_show_group_settings(message: types.Message, bot: Bot):
 
 # --- Обработчик колбэков ---
 
-@settings_router.callback_query(F.data.regexp(r"^toggle:(ai|rp|economy|casino|promo)$"))
+@settings_router.callback_query(F.data.regexp(r"^toggle:(bot|ai|rp|economy|casino|promo)$"))
 async def handle_ai_toggle_callback(callback: types.CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
@@ -118,6 +118,7 @@ async def _build_settings_ui(chat_id: int):
 
     text = (
         "⚙️ **Конфиг группы**\n\n"
+        f"🛑 Бот в группе: {on_off(settings['bot_enabled'])}\n"
         f"🤖 LLM: {on_off(settings['ai_enabled'])}\n"
         f"🎭 RP: {on_off(settings['rp_enabled'])}\n"
         f"💰 Экономика: {on_off(settings['economy_enabled'])}\n"
@@ -128,6 +129,7 @@ async def _build_settings_ui(chat_id: int):
     )
 
     builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=f"Бот {on_off(settings['bot_enabled'])}", callback_data="toggle:bot"))
     builder.row(
         InlineKeyboardButton(text=f"LLM {on_off(settings['ai_enabled'])}", callback_data="toggle:ai"),
         InlineKeyboardButton(text=f"RP {on_off(settings['rp_enabled'])}", callback_data="toggle:rp"),

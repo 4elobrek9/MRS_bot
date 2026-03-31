@@ -97,6 +97,18 @@ async def cmd_joke(message: Message):
     await message.answer(joke)
     await db.log_user_interaction(message.from_user.id, "joke_command", "command")
 
+
+@dp.message(Command("commands"))
+@dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"команды", "commands"}))
+async def cmd_commands_alias(message: Message):
+    response_text = (
+        "📋 Список команд:\n"
+        "/profile, /work, /top, /shop, /pshop, /quests, /give, /transfer, /casino, /heal, /rpactions, /stats, /joke, /help\n\n"
+        "⚙️ Настройки группы: /config (или текстом `конфиг`)."
+    )
+    await message.answer(response_text)
+    await db.log_user_interaction(message.from_user.id, "commands_alias", "command")
+
 @dp.message(Command("check_value"))
 async def cmd_check_value(message: Message):
     """Обработчик команды /check_value для проверки значения из файла."""

@@ -535,6 +535,7 @@ async def create_group_settings_table():
         await db.execute('''
             CREATE TABLE IF NOT EXISTS group_settings (
                 chat_id INTEGER PRIMARY KEY,
+                bot_enabled INTEGER NOT NULL DEFAULT 1,
                 ai_enabled INTEGER NOT NULL DEFAULT 1,
                 rp_enabled INTEGER NOT NULL DEFAULT 1,
                 economy_enabled INTEGER NOT NULL DEFAULT 1,
@@ -548,6 +549,7 @@ async def create_group_settings_table():
         cursor = await db.execute("PRAGMA table_info(group_settings)")
         columns = {col[1] for col in await cursor.fetchall()}
         migrations = {
+            "bot_enabled": "INTEGER NOT NULL DEFAULT 1",
             "ai_enabled": "INTEGER NOT NULL DEFAULT 1",
             "rp_enabled": "INTEGER NOT NULL DEFAULT 1",
             "economy_enabled": "INTEGER NOT NULL DEFAULT 1",
@@ -588,6 +590,7 @@ async def set_ai_status(chat_id: int, enabled: bool):
 
 async def get_group_settings(chat_id: int) -> Dict[str, Any]:
     defaults: Dict[str, Any] = {
+        "bot_enabled": True,
         "ai_enabled": True,
         "rp_enabled": True,
         "economy_enabled": True,
@@ -600,7 +603,7 @@ async def get_group_settings(chat_id: int) -> Dict[str, Any]:
         cursor = await db.execute(
             """
             SELECT ai_enabled, rp_enabled, economy_enabled, casino_enabled, promo_enabled,
-                   work_cooldown_seconds, transfer_cooldown_seconds
+                   work_cooldown_seconds, transfer_cooldown_seconds, bot_enabled
             FROM group_settings WHERE chat_id = ?
             """,
             (chat_id,),
@@ -616,11 +619,13 @@ async def get_group_settings(chat_id: int) -> Dict[str, Any]:
             "promo_enabled": bool(row[4]),
             "work_cooldown_seconds": int(row[5] or 900),
             "transfer_cooldown_seconds": int(row[6] or 36000),
+            "bot_enabled": bool(row[7]),
         }
 
 async def set_group_setting(chat_id: int, field: str, value: Any) -> None:
     allowed_fields = {
         "ai_enabled",
+        "bot_enabled",
         "rp_enabled",
         "economy_enabled",
         "casino_enabled",

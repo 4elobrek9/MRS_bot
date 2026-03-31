@@ -9,6 +9,7 @@ from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BotCommand
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
 # --- Основные импорты из CORE ---
 from core.main.ez_main import *
@@ -78,6 +79,27 @@ logger = logging.getLogger(__name__)
 
 # --- Константы ---
 STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
+
+
+class GroupBotEnabledMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        if isinstance(event, types.Message) and event.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            text = (event.text or "").strip().lower()
+            allow_when_disabled = {
+                "конфиг", "config", "cfg", "настройки", "доп. функции", "команды"
+            }
+            if text.startswith("/"):
+                cmd = text.split()[0].split("@")[0]
+                if cmd in {"/config", "/cfg", "/dop_func", "/start", "/help", "/commands"}:
+                    return await handler(event, data)
+            elif text in allow_when_disabled:
+                return await handler(event, data)
+
+            settings = await db.get_group_settings(event.chat.id)
+            if not settings.get("bot_enabled", True):
+                logger.debug("GroupBotEnabledMiddleware: bot disabled in chat %s, message ignored.", event.chat.id)
+                return
+        return await handler(event, data)
 
 # ВАЖНО: используем единый Dispatcher из core.main.ez_main,
 # чтобы все декораторы из core.main.dec_command регистрировались
@@ -167,6 +189,7 @@ async def main():
     dp["profile_manager"] = profile_manager
     dp["sticker_manager"] = sticker_manager_instance
     dp["bot_instance"] = bot
+    dp.message.middleware(GroupBotEnabledMiddleware())
 
     # Регистрация роутера настроек
     dp.include_router(settings_router)
