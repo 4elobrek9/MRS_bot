@@ -530,47 +530,42 @@ async def update_casino_stats(self, user_id: int, win_streak: int, roulette_loss
 
 # Добавление функций для управления настройками группы
 async def create_group_settings_table():
-    """Создает таблицу для хранения настроек групп (напр., AI status)."""
+    """Создает/мигрирует таблицу настроек групп."""
     async with aiosqlite.connect(DB_PATH) as db:
-
-        # ❗ ВРЕМЕННЫЙ ФИКС: Удаляем таблицу, если она сломана (нет колонки chat_id)
-        # Это нужно, чтобы исправить ошибку "no such column: chat_id"
-        try:
-            # Проверяем наличие колонки chat_id
-            cursor = await db.execute("PRAGMA table_info(group_settings)")
-            columns = [col[1] for col in await cursor.fetchall()]
-
-            if 'chat_id' not in columns:
-                logger.warning("group_settings table is corrupted (missing 'chat_id'). Dropping and recreating table.")
-                await db.execute("DROP TABLE IF EXISTS group_settings")
-                # Здесь мы ничего не коммитим, чтобы весь процесс создания/миграции
-                # был одной атомарной операцией.
-
-        except aiosqlite.OperationalError:
-            # Таблица group_settings еще не существует, поэтому PRAGMA вызывает ошибку. Игнорируем.
-            pass
-
-        # 1. Создаем таблицу с ПРАВИЛЬНОЙ схемой (или пересоздаем, если она была удалена выше)
         await db.execute('''
             CREATE TABLE IF NOT EXISTS group_settings (
                 chat_id INTEGER PRIMARY KEY,
-                ai_enabled BOOLEAN DEFAULT 1 -- Колонка, из-за которой была первая ошибка
+                bot_enabled INTEGER NOT NULL DEFAULT 1,
+                ai_enabled INTEGER NOT NULL DEFAULT 1,
+                rp_enabled INTEGER NOT NULL DEFAULT 1,
+                economy_enabled INTEGER NOT NULL DEFAULT 1,
+                casino_enabled INTEGER NOT NULL DEFAULT 1,
+                promo_enabled INTEGER NOT NULL DEFAULT 1,
+                work_cooldown_seconds INTEGER NOT NULL DEFAULT 900,
+                transfer_cooldown_seconds INTEGER NOT NULL DEFAULT 36000
             )
         ''')
 
-        # 2. Удалите этот блок try/except после первого успешного запуска
-        # Оставляем его, на случай если таблица существует, но `ai_enabled` нет
-        try:
-            await db.execute("ALTER TABLE group_settings ADD COLUMN ai_enabled BOOLEAN DEFAULT 1")
-            logger.info("Column 'ai_enabled' successfully added to group_settings table.")
-        except aiosqlite.OperationalError as e:
-            if "duplicate column name" in str(e).lower():
-                pass
-            # Здесь мы можем игнорировать другие ошибки, так как мы только что удалили и создали таблицу выше
+        cursor = await db.execute("PRAGMA table_info(group_settings)")
+        columns = {col[1] for col in await cursor.fetchall()}
+        migrations = {
+            "bot_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "ai_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "rp_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "economy_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "casino_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "promo_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "work_cooldown_seconds": "INTEGER NOT NULL DEFAULT 900",
+            "transfer_cooldown_seconds": "INTEGER NOT NULL DEFAULT 36000",
+        }
+        for col, definition in migrations.items():
+            if col not in columns:
+                await db.execute(f"ALTER TABLE group_settings ADD COLUMN {col} {definition}")
+                logger.info("Added '%s' column to group_settings.", col)
 
         await db.commit()
 
-async def get_ai_status(migrate_to_chat_id: int) -> bool:
+async def get_ai_status(chat_id: int) -> bool:
     """Получить статус включения AI для группы. По умолчанию True."""
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
@@ -582,12 +577,72 @@ async def get_ai_status(migrate_to_chat_id: int) -> bool:
         # Если запись есть, возвращаем результат (0 или 1), преобразованный в bool
         return bool(result[0]) if result else True
 
-async def set_ai_status(migrate_to_chat_id: int, enabled: bool):
+async def set_ai_status(chat_id: int, enabled: bool):
     """Установить статус включения AI для группы."""
     status = 1 if enabled else 0
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR REPLACE INTO group_settings (chat_id, ai_enabled) VALUES (?, ?)",
+            "INSERT INTO group_settings (chat_id, ai_enabled) VALUES (?, ?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET ai_enabled = excluded.ai_enabled",
             (chat_id, status)
+        )
+        await db.commit()
+
+async def get_group_settings(chat_id: int) -> Dict[str, Any]:
+    defaults: Dict[str, Any] = {
+        "bot_enabled": True,
+        "ai_enabled": True,
+        "rp_enabled": True,
+        "economy_enabled": True,
+        "casino_enabled": True,
+        "promo_enabled": True,
+        "work_cooldown_seconds": 900,
+        "transfer_cooldown_seconds": 36000,
+    }
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT ai_enabled, rp_enabled, economy_enabled, casino_enabled, promo_enabled,
+                   work_cooldown_seconds, transfer_cooldown_seconds, bot_enabled
+            FROM group_settings WHERE chat_id = ?
+            """,
+            (chat_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return defaults
+        return {
+            "ai_enabled": bool(row[0]),
+            "rp_enabled": bool(row[1]),
+            "economy_enabled": bool(row[2]),
+            "casino_enabled": bool(row[3]),
+            "promo_enabled": bool(row[4]),
+            "work_cooldown_seconds": int(row[5] or 900),
+            "transfer_cooldown_seconds": int(row[6] or 36000),
+            "bot_enabled": bool(row[7]),
+        }
+
+async def set_group_setting(chat_id: int, field: str, value: Any) -> None:
+    allowed_fields = {
+        "ai_enabled",
+        "bot_enabled",
+        "rp_enabled",
+        "economy_enabled",
+        "casino_enabled",
+        "promo_enabled",
+        "work_cooldown_seconds",
+        "transfer_cooldown_seconds",
+    }
+    if field not in allowed_fields:
+        raise ValueError(f"Unsupported group setting field: {field}")
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO group_settings(chat_id) VALUES (?)",
+            (chat_id,),
+        )
+        await db.execute(
+            f"UPDATE group_settings SET {field} = ? WHERE chat_id = ?",
+            (value, chat_id),
         )
         await db.commit()

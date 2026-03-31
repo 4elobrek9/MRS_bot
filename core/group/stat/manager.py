@@ -483,11 +483,14 @@ class ProfileManager:
             avatar_image = None
             
             try:
-                user_profile_photos = await bot.get_user_profile_photos(user.id, limit=1)
+                user_profile_photos = await asyncio.wait_for(
+                    bot.get_user_profile_photos(user.id, limit=1),
+                    timeout=3
+                )
                 if user_profile_photos.total_count > 0:
                     photo = user_profile_photos.photos[0][-1]
-                    file = await bot.get_file(photo.file_id)
-                    avatar_bytes = await bot.download_file(file.file_path)
+                    file = await asyncio.wait_for(bot.get_file(photo.file_id), timeout=3)
+                    avatar_bytes = await asyncio.wait_for(bot.download_file(file.file_path), timeout=3)
                     avatar_image = Image.open(BytesIO(avatar_bytes.getvalue())).convert("RGBA")
                 else:
                     raise Exception("No profile photo")
