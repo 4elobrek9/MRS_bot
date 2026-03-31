@@ -759,13 +759,13 @@ async def roulette_bet_handler(callback: types.CallbackQuery, profile_manager: P
     user_id = callback.from_user.id
     data_parts = callback.data.split("_")
 
-    if len(data_parts) < 6:
+    if len(data_parts) < 5:
         await safe_answer_callback(callback, "❌ Ошибка в данных!")
         return
 
     choice = data_parts[3]
-    bet_amount = int(data_parts[4])
-    callback_user_id = int(data_parts[5])
+    bet_amount = int(data_parts[2])
+    callback_user_id = int(data_parts[4])
 
     if user_id != callback_user_id:
         await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)

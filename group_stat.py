@@ -303,19 +303,22 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
 
     active_background = profile.get("active_background", "default")
     text = (
-        f"👤 Профиль: {message.from_user.first_name}\n"
-        f"❤️ HP: {profile.get('hp', 100)}\n"
-        f"⭐ Уровень: {profile.get('level', 1)}\n"
-        f"✨ EXP: {profile.get('exp', 0)}\n"
-        f"💰 Lumcoins: {profile.get('lumcoins', 0)}\n"
-        f"💎 Plumcoins: {profile.get('plumcoins', 0)}\n"
-        f"🔥 Серия: {profile.get('flames', 0)}\n"
-        f"💬 Сообщений сегодня: {profile.get('daily_messages', 0)}\n"
-        f"💬 Всего сообщений: {profile.get('total_messages', 0)}\n"
-        f"🖼 Фон профиля: {active_background}\n\n"
-        f"ℹ️ Механика фонов сохранена: покупка/активация работает через магазин."
+        "╔═══════════════╗\n"
+        "✨ **ПРОФИЛЬ ИГРОКА** ✨\n"
+        "╚═══════════════╝\n\n"
+        f"👤 **Игрок:** {message.from_user.first_name}\n"
+        f"❤️ **HP:** `{profile.get('hp', 100)}`\n"
+        f"⭐ **Уровень:** `{profile.get('level', 1)}`\n"
+        f"📈 **EXP:** `{profile.get('exp', 0)}`\n"
+        f"💰 **Lumcoins:** `{profile.get('lumcoins', 0)}`\n"
+        f"💎 **Plumcoins:** `{profile.get('plumcoins', 0)}`\n"
+        f"🔥 **Серия активности:** `{profile.get('flames', 0)}`\n"
+        f"💬 **Сегодня сообщений:** `{profile.get('daily_messages', 0)}`\n"
+        f"🧾 **Всего сообщений:** `{profile.get('total_messages', 0)}`\n"
+        f"🖼 **Активный фон:** `{active_background}`\n\n"
+        "ℹ️ Фоны можно менять через `/shop`."
     )
-    await message.answer(text)
+    await message.answer(text, parse_mode=ParseMode.MARKDOWN)
 
 @stat_router.message(Command("heal"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"лечить", "мое здоровье", "хп"}))
