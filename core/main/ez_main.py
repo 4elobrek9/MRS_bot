@@ -14,6 +14,7 @@ import ollama # Для взаимодействия с Ollama API
 import aiohttp # Для асинхронных HTTP запросов (например, для анекдотов, фонов)
 from bs4 import BeautifulSoup # Для парсинга HTML (анекдоты)
 from aiogram import Bot, Dispatcher, F, types, Router # <--- ИЗМЕНЕНИЕ: Добавлен импорт Router
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode, ChatType
 from aiogram.filters import Command
@@ -100,5 +101,12 @@ if CHANNEL_ID_STR:
     except ValueError:
         logger.warning("CHANNEL_ID is not set or invalid. Jokes task will be disabled.")
 
-bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+# Для long-polling нужен таймаут больше длительности getUpdates,
+# иначе polling может падать по TimeoutError.
+bot_session = AiohttpSession(timeout=75)
+bot = Bot(
+    token=TOKEN,
+    session=bot_session,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
