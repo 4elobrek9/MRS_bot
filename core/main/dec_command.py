@@ -180,6 +180,12 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
     """
     user_id = message.from_user.id
 
+    await message.answer(
+        "🤖 ИИ-ответы в личных сообщениях отключены.\n"
+        "Используйте команды (/help, /mode, /stats и т.д.) или общайтесь с ИИ в групповом чате."
+    )
+    return
+
     try:
         await profile_manager.record_message(message.from_user)
     except Exception as e:
