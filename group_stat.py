@@ -609,8 +609,21 @@ async def _is_feature_enabled(message: types.Message, field_name: str) -> bool:
 async def track_group_activity(message: types.Message, profile_manager: ProfileManager):
     if not message.from_user:
         return
-    if message.text.startswith('/'):
+    text = message.text.strip().lower()
+    if text.startswith('/'):
         return
+
+    # ВАЖНО: не перехватываем сообщения-команды, чтобы они дошли до профильных хендлеров других роутеров.
+    command_like_prefixes = {
+        "профиль", "работать", "работа", "топ", "магазин", "инвентарь", "задания", "квесты",
+        "пмагазин", "pshop", "дать", "передать", "перевод", "трансфер",
+        "казино", "casino", "конфиг", "config", "cfg", "команды", "commands",
+        "лечить", "мое здоровье", "хп", "статистика", "анекдот", "help", "start"
+    }
+    if any(text.startswith(prefix) for prefix in command_like_prefixes):
+        logger.debug("track_group_activity: skipped command-like text '%s' from user %s", text, message.from_user.id)
+        return
+
     try:
         await profile_manager.record_message(message.from_user)
         await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)

@@ -98,6 +98,8 @@ class GroupBotEnabledMiddleware(BaseMiddleware):
             settings = await db.get_group_settings(event.chat.id)
             if not settings.get("bot_enabled", True):
                 logger.debug("GroupBotEnabledMiddleware: bot disabled in chat %s, message ignored.", event.chat.id)
+                if text.startswith("/") or text in allow_when_disabled:
+                    await event.answer("🛑 Бот отключён в этом чате. Откройте `конфиг`/`/config`, чтобы включить обратно.")
                 return
         return await handler(event, data)
 
