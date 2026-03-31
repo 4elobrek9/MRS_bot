@@ -238,10 +238,15 @@ async def cmd_show_rp_actions_list(message: types.Message, bot: Bot):
     await message.answer(response_text, parse_mode=ParseMode.HTML)
 
 
-@rp_router.message(F.text)
+@rp_router.message(F.text, ~F.text.startswith('/'))
 async def handle_rp_action_via_text(message: types.Message, bot: Bot, profile_manager: ProfileManager):
 
     logger.debug(f"handle_rp_action_via_text: Received text message: '{message.text}' from user {message.from_user.id}.")
+    try:
+        await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
+        await db.log_user_interaction(message.from_user.id, "group_message", "message")
+    except Exception as e:
+        logger.error(f"Failed to persist group message for user {message.from_user.id}: {e}")
 
     action_name, target_user, custom_text = await _parse_rp_message(message, bot)
 
@@ -368,4 +373,3 @@ def setup_rp_handlers(main_dp: Router, bot_instance: Bot, profile_manager_instan
     # Register handlers
     main_dp.include_router(rp_router)
     logger.info("RP router included and configured.")
-
