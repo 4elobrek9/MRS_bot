@@ -1,10 +1,24 @@
-from core.main.ez_main import dp, logger
+import random
+from contextlib import suppress
+from typing import Optional
+
+from core.main.ez_main import (
+    dp,
+    logger,
+    VALUE_FILE_PATH,
+    OLLAMA_API_BASE_URL,
+    OLLAMA_MODEL_NAME,
+)
 from core.main.ollama import NeuralAPI, safe_send_message, typing_animation, fetch_random_joke, StickerManager
 from core.group.stat.manager import ProfileManager
+import database as db
+from aiogram.types import InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.markdown import hbold
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram import F
-from aiogram.enums import ChatType
+from aiogram.enums import ChatType, ParseMode
 from aiogram import Bot
 
 MAX_RATING_OPPORTUNITIES = 5

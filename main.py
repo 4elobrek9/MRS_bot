@@ -242,7 +242,10 @@ async def main():
         BotCommand(command="dop_func", description="⚙️ Настройки и доп. функции группы (только для админов)"), # NEW COMMAND
     ]
 
-    await bot.set_my_commands(commands)
+    try:
+        await asyncio.wait_for(bot.set_my_commands(commands), timeout=5)
+    except Exception as e:
+        logger.warning("Не удалось быстро установить команды бота: %s", e)
 
     logger.info("Запуск поллинга...")
     try:
