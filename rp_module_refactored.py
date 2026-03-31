@@ -264,6 +264,11 @@ async def handle_rp_action_via_slash_command(message: types.Message, bot: Bot, p
     Handles RP actions sent as slash commands (e.g., /kiss @username).
     """
     logger.debug(f"handle_rp_action_via_slash_command: Received slash command: '{message.text}' from user {message.from_user.id}.")
+    try:
+        await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
+        await db.log_user_interaction(message.from_user.id, "group_message", "message")
+    except Exception as e:
+        logger.error(f"Failed to persist slash group message for user {message.from_user.id}: {e}")
     
     action_name, target_user, custom_text = await _parse_rp_message(message, bot)
 

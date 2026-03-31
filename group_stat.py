@@ -17,6 +17,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink, hbold, hcode
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from core.group.stat.config import WorkConfig, ProfileConfig
 
 # Импортируем роутеры
@@ -310,7 +311,17 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         return
 
     logger.info(f"Sending profile image to user {message.from_user.id}.")
-    await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
+    profile_photo = BufferedInputFile(image_bytes.getvalue(), filename="profile.png")
+    try:
+        await message.reply_photo(profile_photo)
+    except TelegramNetworkError as e:
+        logger.warning(f"Timeout while sending profile image to user {message.from_user.id}, retrying once: {e}")
+        try:
+            await asyncio.sleep(1)
+            await message.reply_photo(profile_photo)
+        except Exception as retry_error:
+            logger.error(f"Failed to send profile image after retry for user {message.from_user.id}: {retry_error}")
+            await message.reply("⚠️ Профиль сгенерирован, но не удалось отправить изображение из-за проблем сети Telegram. Попробуйте ещё раз.")
 
 @stat_router.message(Command("heal"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"лечить", "мое здоровье", "хп"}))
