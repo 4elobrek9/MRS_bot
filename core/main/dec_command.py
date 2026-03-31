@@ -141,7 +141,7 @@ async def voice_handler_msg(message: Message):
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     await message.answer("🎤 Голосовые пока не обрабатываю, но очень хочу научиться! Отправь пока текстом, пожалуйста.")
 
-@dp.message(F.chat.type == ChatType.PRIVATE, F.text)
+@dp.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith('/'))
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):
     """
     Основной обработчик текстовых сообщений в приватных чатах.

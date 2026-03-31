@@ -101,7 +101,9 @@ if CHANNEL_ID_STR:
     except ValueError:
         logger.warning("CHANNEL_ID is not set or invalid. Jokes task will be disabled.")
 
-bot_session = AiohttpSession(timeout=15)
+# Для long-polling нужен таймаут больше длительности getUpdates,
+# иначе polling может падать по TimeoutError.
+bot_session = AiohttpSession(timeout=75)
 bot = Bot(
     token=TOKEN,
     session=bot_session,
