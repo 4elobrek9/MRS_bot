@@ -6,6 +6,7 @@ import string
 import time
 import random
 from database import add_item_to_inventory, set_user_active_background, get_user_rp_stats, update_user_rp_stats, DB_PATH
+import database as db
 import asyncio
 import aiosqlite
 from aiogram.fsm.context import FSMContext
@@ -17,6 +18,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink, hbold, hcode
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from core.group.stat.config import WorkConfig, ProfileConfig
 
 # Импортируем роутеры
@@ -280,53 +282,10 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
         )
 
 # В файле group_stat.py
-@stat_router.message(Command("profile") | F.text.lower().startswith("профиль"))
+@stat_router.message(Command("profile"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower().startswith("профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
-
-    # Получаем текст сообщения в нижнем регистре и очищаем от пробелов
-    text = message.text.lower().strip()
-
-    # 1. Получаем имя бота
-    bot_username = (await bot.get_me()).username
-    mention = f"@{bot_username}".lower()
-
-    # 2. Удаляем упоминание бота, если оно есть
-    if text.endswith(mention):
-        text = text.replace(mention, "").strip()
-
-    # 3. Разбираем команду и аргументы
-    # Проверяем, что сообщение начинается с 'профиль' (уже сделано фильтром),
-    # и разделяем команду от остального текста (аргументов)
-
-    parts = text.split(maxsplit=1)
-    command = parts[0]  # Должно быть 'профиль'
-    args = parts[1] if len(parts) > 1 else ""  # Аргумент (например, упоминание другого пользователя)
-
-    if command == "профиль":
-        # Если есть аргументы, и это упоминание пользователя, то показываем его профиль
-        # Если аргументов нет, то показываем свой профиль
-
-        target_user = None
-        if message.reply_to_message and not args:
-            # Логика для реплая (если вы поддерживаете)
-            target_user = message.reply_to_message.from_user
-        elif message.entities:
-            # Логика для извлечения упоминаний из текста
-            for entity in message.entities:
-                if entity.type == 'mention' or entity.type == 'text_mention':
-                    # Тут должна быть ваша логика для определения target_user
-                    # Временно проигнорируем эту сложную логику и сосредоточимся на чистой команде
-                    pass
-
-        if not args:  # Если это чистая команда "профиль"
-            await message.reply("✅ Профиль пользователя успешно обработан! (Здесь будет ваш профиль)")
-        else:
-            # Если есть аргументы (например, 'профиль @user')
-             await message.reply(f"✅ Профиль с аргументом '{args}' успешно обработан! (Профиль другого пользователя)")
-
-        # ... (Ваш основной код для показа профиля)
-        return
 
     # Используем метод ProfileManager для проверки/создания
     await profile_manager.ensure_user_profile_exists(message.from_user)
@@ -342,20 +301,24 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
     if rp_stats:
         profile['hp'] = rp_stats.get('hp', 100)
 
-    logger.debug(f"Generating profile image for user {message.from_user.id}.")
+    active_background = profile.get("active_background", "default")
+    text = (
+        f"👤 Профиль: {message.from_user.first_name}\n"
+        f"❤️ HP: {profile.get('hp', 100)}\n"
+        f"⭐ Уровень: {profile.get('level', 1)}\n"
+        f"✨ EXP: {profile.get('exp', 0)}\n"
+        f"💰 Lumcoins: {profile.get('lumcoins', 0)}\n"
+        f"💎 Plumcoins: {profile.get('plumcoins', 0)}\n"
+        f"🔥 Серия: {profile.get('flames', 0)}\n"
+        f"💬 Сообщений сегодня: {profile.get('daily_messages', 0)}\n"
+        f"💬 Всего сообщений: {profile.get('total_messages', 0)}\n"
+        f"🖼 Фон профиля: {active_background}\n\n"
+        f"ℹ️ Механика фонов сохранена: покупка/активация работает через магазин."
+    )
+    await message.answer(text)
 
-    # ИСПРАВЛЕНИЕ: используем экземпляр profile_manager, а не класс ProfileManager
-    image_bytes = await profile_manager.generate_profile_image(message.from_user, profile, bot)
-
-    if image_bytes is None:
-        logger.error(f"Failed to generate profile image for user {message.from_user.id}.")
-        await message.reply("❌ Не удалось сгенерировать изображение профиля!")
-        return
-
-    logger.info(f"Sending profile image to user {message.from_user.id}.")
-    await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
-
-@stat_router.message(Command("heal") | F.text.lower().in_({"лечить", "мое здоровье", "хп"}))
+@stat_router.message(Command("heal"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"лечить", "мое здоровье", "хп"}))
 async def heal_hp(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'лечить' command from user {user_id}.")
@@ -398,17 +361,23 @@ async def heal_hp(message: types.Message, profile_manager: ProfileManager):
     )
     logger.info(f"User {user_id} healed {heal_amount} HP for {cost} Lumcoins.")
 
-@stat_router.message(Command("work") | F.text.lower().in_({"работать", "работа", "поработать", "на работу"}))
+@stat_router.message(Command("work"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"работать", "работа", "поработать", "на работу"}))
 async def do_work(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'работать' command from user {user_id}.")
 
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
+
     last_work_time = await profile_manager.get_last_work_time(user_id)
     current_time = time.time()
+    group_settings = await db.get_group_settings(message.chat.id) if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} else {}
+    cooldown = group_settings.get("work_cooldown_seconds", WorkConfig.COOLDOWN_SECONDS)
 
     # Проверка кулдауна
-    if current_time - last_work_time < WorkConfig.COOLDOWN_SECONDS:
-        remaining_time = int(WorkConfig.COOLDOWN_SECONDS - (current_time - last_work_time))
+    if current_time - last_work_time < cooldown:
+        remaining_time = int(cooldown - (current_time - last_work_time))
         minutes, seconds = divmod(remaining_time, 60)
         await message.reply(f"⏳ Вы сможете работать снова через {minutes} мин. {seconds} сек.")
         return
@@ -423,7 +392,8 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
     await message.reply(f"✅ Вы успешно {task_name} и заработали {lumcoins_reward} Lumcoins!")
     logger.info(f"User {user_id} successfully worked, earned {lumcoins_reward} Lumcoins. Task: '{task_name}'.")
 
-@stat_router.message(Command("shop") | F.text.lower().in_({"магазин", "магазин фонов"}))
+@stat_router.message(Command("shop"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"магазин", "магазин фонов"}))
 async def show_shop(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'магазин' command from user {user_id}.")
@@ -515,7 +485,8 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             reply_markup=None
         )
 
-@stat_router.message(Command("top") | F.text.lower().in_({"топ", "топ игроков"}))
+@stat_router.message(Command("top"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"топ", "топ игроков"}))
 async def show_top(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'топ' command from user {user_id}.")
@@ -623,11 +594,38 @@ def setup_stat_handlers(main_dp, profile_manager, database_module, sticker_manag
     logger.info("Registering stat router handlers.")
     logger.info("Stat router included in Dispatcher.")
 
-@stat_router.message(Command("give") | F.text.lower().in_({"дать", "передать"}))
+
+async def _is_feature_enabled(message: types.Message, field_name: str) -> bool:
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return True
+    settings = await db.get_group_settings(message.chat.id)
+    enabled = bool(settings.get(field_name, True))
+    if not enabled:
+        await message.reply("⚙️ Эта функция отключена в конфиге группы.")
+    return enabled
+
+
+async def record_group_activity(message: types.Message, profile_manager: ProfileManager):
+    if not message.from_user or not message.text:
+        return
+    text = message.text.strip().lower()
+    if text.startswith('/'):
+        return
+    try:
+        await profile_manager.record_message(message.from_user)
+        await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
+        await db.log_user_interaction(message.from_user.id, "group_message", "message")
+    except Exception as e:
+        logger.error("Failed to record group activity for user %s: %s", message.from_user.id, e)
+
+@stat_router.message(Command("give"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"дать", "передать"}))
 async def give_lumcoins(message: types.Message, profile_manager: ProfileManager):
     """Передача Lumcoins другому пользователю с ограничениями"""
     user_id = message.from_user.id
     logger.info(f"Received 'дать' command from user {user_id}: '{message.text}'")
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
 
     # Парсим команду
     parts = message.text.split()
@@ -662,7 +660,8 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
     # Проверяем кулдаун (10 часов)
     last_transfer_time = await get_last_transfer_time(user_id)
     current_time = time.time()
-    cooldown_seconds = 10 * 60 * 60  # 10 часов
+    group_settings = await db.get_group_settings(message.chat.id) if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} else {}
+    cooldown_seconds = group_settings.get("transfer_cooldown_seconds", 10 * 60 * 60)
 
     if current_time - last_transfer_time < cooldown_seconds:
         remaining_time = int(cooldown_seconds - (current_time - last_transfer_time))
@@ -718,7 +717,7 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         return
 
     # Проверяем, что получатель существует в базе
-    await ensure_user_exists(target_user.id, target_user.username, target_user.first_name)
+    await db.ensure_user_exists(target_user.id, target_user.username, target_user.first_name)
 
     # Выполняем перевод
     try:
@@ -759,14 +758,18 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         logger.error(f"Error transferring Lumcoins from {user_id} to {target_user.id}: {e}")
         await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
 
-@stat_router.message(Command("transfer") | F.text.lower().in_({"перевод", "трансфер"}))
+@stat_router.message(Command("transfer"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"перевод", "трансфер"}))
 async def check_transfer_status(message: types.Message):
     """Показывает статус перевода и время до следующего возможного"""
     user_id = message.from_user.id
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
 
     last_transfer_time = await get_last_transfer_time(user_id)
     current_time = time.time()
-    cooldown_seconds = 10 * 60 * 60  # 10 часов
+    group_settings = await db.get_group_settings(message.chat.id) if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} else {}
+    cooldown_seconds = group_settings.get("transfer_cooldown_seconds", 10 * 60 * 60)
 
     if last_transfer_time == 0:
         await message.reply(
@@ -806,7 +809,8 @@ async def check_transfer_status(message: types.Message):
         )
 
 # Новый обработчик для команды /админы
-@stat_router.message(Command("admins") | F.text.lower().in_({"админы", "онлайн админы"}))
+@stat_router.message(Command("admins"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"админы", "онлайн админы"}))
 async def show_online_admins(message: types.Message, bot: Bot):
     """Показывает количество онлайн администраторов в группе"""
     chat_id = message.chat.id
@@ -838,3 +842,8 @@ async def show_online_admins(message: types.Message, bot: Bot):
     except Exception as e:
         logger.error(f"Error getting admins for chat {chat_id}: {e}")
         await message.reply("❌ Не удалось получить список администраторов. Пожалуйста, попробуйте позже.")
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
+
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return

@@ -40,6 +40,8 @@ class MistralGroupHandler:
 
         # Время последнего авто-вопроса: {chat_id: datetime}
         self.last_question_time: Dict[int, datetime] = {}
+        # Счетчик входящих сообщений в чате для ответа на каждое N-е
+        self.chat_message_counter: Dict[int, int] = {}
 
         # Темы для разговора (можно расширить)
         self.conversation_topics = [
@@ -118,6 +120,31 @@ class MistralGroupHandler:
             logger.error(f"Mistral Request Failed: {e}")
             return ""
 
+    async def warmup_ping(self) -> str:
+        """Проверочный запрос к Mistral на старте."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": "Ответь коротко и дружелюбно."},
+                        {"role": "user", "content": "Привет"}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 40
+                }
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                async with session.post(f"{self.base_url}/chat/completions", json=payload, headers=headers) as resp:
+                    if resp.status != 200:
+                        return f"warmup failed status={resp.status}: {await resp.text()}"
+                    data = await resp.json()
+                    return data['choices'][0]['message']['content']
+        except Exception as e:
+            return f"warmup exception: {e!r}"
+
     async def handle_all_group_messages(self, message: types.Message):
         """Основной метод обработки входящего сообщения"""
         chat_id = message.chat.id
@@ -179,26 +206,23 @@ class MistralGroupHandler:
         prompt_instruction = ""
 
         # Если ответили НА сообщение бота
-        is_reply = message.reply_to_message is not None
-        is_mention = self.bot_username in text
+        is_reply_to_bot = (
+            message.reply_to_message is not None
+            and message.reply_to_message.from_user is not None
+            and message.reply_to_message.from_user.id == self.bot.id
+        )
+        is_mention = bool(self.bot_username and f"@{self.bot_username.lower()}" in text.lower())
 
-        if is_reply or is_mention:
+        if is_reply_to_bot or is_mention:
             should_respond = True
             prompt_instruction = "Пользователь ответил тебе. Поддержи диалог, пошути или задай встречный вопрос."
 
-        # Если активное время (12:00 - 00:00)
+        # Если это каждое 5-е сообщение в чате — отвечаем без упоминания
         elif self._is_working_hours():
-            # Если пользователь в контексте (мы недавно общались), вероятность ответа выше
-            if is_in_context:
-                # 30% шанс продолжить тему, если диалог идет
-                if random.random() < 0.3:
-                    should_respond = True
-                    prompt_instruction = "Пользователь продолжает беседу. Прокомментируй кратко или пошути."
-            else:
-                # Если просто пишут в чат, маленький шанс (например 5%), чтобы "влезть"
-                if random.random() < 0.05:
-                    should_respond = True
-                    prompt_instruction = "Вклинься в разговор с интересным комментарием или вопросом."
+            self.chat_message_counter[chat_id] = self.chat_message_counter.get(chat_id, 0) + 1
+            if self.chat_message_counter[chat_id] % 5 == 0:
+                should_respond = True
+                prompt_instruction = "Ответь как участник чата: коротко, живо и по теме последнего обсуждения."
 
         # 4. Генерация и отправка
         if should_respond:
