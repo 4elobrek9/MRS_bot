@@ -1,10 +1,24 @@
-from core.main.ez_main import dp, logger
+import random
+from contextlib import suppress
+from typing import Optional
+
+from core.main.ez_main import (
+    dp,
+    logger,
+    VALUE_FILE_PATH,
+    OLLAMA_API_BASE_URL,
+    OLLAMA_MODEL_NAME,
+)
 from core.main.ollama import NeuralAPI, safe_send_message, typing_animation, fetch_random_joke, StickerManager
 from core.group.stat.manager import ProfileManager
+import database as db
+from aiogram.types import InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.markdown import hbold
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram import F
-from aiogram.enums import ChatType
+from aiogram.enums import ChatType, ParseMode
 from aiogram import Bot
 
 MAX_RATING_OPPORTUNITIES = 5
@@ -127,7 +141,7 @@ async def voice_handler_msg(message: Message):
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     await message.answer("🎤 Голосовые пока не обрабатываю, но очень хочу научиться! Отправь пока текстом, пожалуйста.")
 
-@dp.message(F.chat.type == ChatType.PRIVATE, F.text)
+@dp.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith('/'))
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):
     """
     Основной обработчик текстовых сообщений в приватных чатах.

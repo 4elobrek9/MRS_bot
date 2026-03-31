@@ -17,6 +17,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton, BufferedInputFile
 from aiogram.utils.markdown import hlink, hbold, hcode
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramNetworkError
 from core.group.stat.config import WorkConfig, ProfileConfig
 
 # Импортируем роутеры
@@ -280,53 +281,10 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
         )
 
 # В файле group_stat.py
-@stat_router.message(Command("profile") | F.text.lower().startswith("профиль"))
+@stat_router.message(Command("profile"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower().startswith("профиль")))
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
-
-    # Получаем текст сообщения в нижнем регистре и очищаем от пробелов
-    text = message.text.lower().strip()
-
-    # 1. Получаем имя бота
-    bot_username = (await bot.get_me()).username
-    mention = f"@{bot_username}".lower()
-
-    # 2. Удаляем упоминание бота, если оно есть
-    if text.endswith(mention):
-        text = text.replace(mention, "").strip()
-
-    # 3. Разбираем команду и аргументы
-    # Проверяем, что сообщение начинается с 'профиль' (уже сделано фильтром),
-    # и разделяем команду от остального текста (аргументов)
-
-    parts = text.split(maxsplit=1)
-    command = parts[0]  # Должно быть 'профиль'
-    args = parts[1] if len(parts) > 1 else ""  # Аргумент (например, упоминание другого пользователя)
-
-    if command == "профиль":
-        # Если есть аргументы, и это упоминание пользователя, то показываем его профиль
-        # Если аргументов нет, то показываем свой профиль
-
-        target_user = None
-        if message.reply_to_message and not args:
-            # Логика для реплая (если вы поддерживаете)
-            target_user = message.reply_to_message.from_user
-        elif message.entities:
-            # Логика для извлечения упоминаний из текста
-            for entity in message.entities:
-                if entity.type == 'mention' or entity.type == 'text_mention':
-                    # Тут должна быть ваша логика для определения target_user
-                    # Временно проигнорируем эту сложную логику и сосредоточимся на чистой команде
-                    pass
-
-        if not args:  # Если это чистая команда "профиль"
-            await message.reply("✅ Профиль пользователя успешно обработан! (Здесь будет ваш профиль)")
-        else:
-            # Если есть аргументы (например, 'профиль @user')
-             await message.reply(f"✅ Профиль с аргументом '{args}' успешно обработан! (Профиль другого пользователя)")
-
-        # ... (Ваш основной код для показа профиля)
-        return
 
     # Используем метод ProfileManager для проверки/создания
     await profile_manager.ensure_user_profile_exists(message.from_user)
@@ -353,9 +311,20 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         return
 
     logger.info(f"Sending profile image to user {message.from_user.id}.")
-    await message.reply_photo(BufferedInputFile(image_bytes.getvalue(), filename="profile.png"))
+    profile_photo = BufferedInputFile(image_bytes.getvalue(), filename="profile.png")
+    try:
+        await message.reply_photo(profile_photo)
+    except TelegramNetworkError as e:
+        logger.warning(f"Timeout while sending profile image to user {message.from_user.id}, retrying once: {e}")
+        try:
+            await asyncio.sleep(1)
+            await message.reply_photo(profile_photo)
+        except Exception as retry_error:
+            logger.error(f"Failed to send profile image after retry for user {message.from_user.id}: {retry_error}")
+            await message.reply("⚠️ Профиль сгенерирован, но не удалось отправить изображение из-за проблем сети Telegram. Попробуйте ещё раз.")
 
-@stat_router.message(Command("heal") | F.text.lower().in_({"лечить", "мое здоровье", "хп"}))
+@stat_router.message(Command("heal"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"лечить", "мое здоровье", "хп"}))
 async def heal_hp(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'лечить' command from user {user_id}.")
@@ -398,7 +367,8 @@ async def heal_hp(message: types.Message, profile_manager: ProfileManager):
     )
     logger.info(f"User {user_id} healed {heal_amount} HP for {cost} Lumcoins.")
 
-@stat_router.message(Command("work") | F.text.lower().in_({"работать", "работа", "поработать", "на работу"}))
+@stat_router.message(Command("work"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"работать", "работа", "поработать", "на работу"}))
 async def do_work(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'работать' command from user {user_id}.")
@@ -423,7 +393,8 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
     await message.reply(f"✅ Вы успешно {task_name} и заработали {lumcoins_reward} Lumcoins!")
     logger.info(f"User {user_id} successfully worked, earned {lumcoins_reward} Lumcoins. Task: '{task_name}'.")
 
-@stat_router.message(Command("shop") | F.text.lower().in_({"магазин", "магазин фонов"}))
+@stat_router.message(Command("shop"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"магазин", "магазин фонов"}))
 async def show_shop(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'магазин' command from user {user_id}.")
@@ -515,7 +486,8 @@ async def process_buy_background(callback: types.CallbackQuery, profile_manager:
             reply_markup=None
         )
 
-@stat_router.message(Command("top") | F.text.lower().in_({"топ", "топ игроков"}))
+@stat_router.message(Command("top"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"топ", "топ игроков"}))
 async def show_top(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'топ' command from user {user_id}.")
@@ -623,7 +595,8 @@ def setup_stat_handlers(main_dp, profile_manager, database_module, sticker_manag
     logger.info("Registering stat router handlers.")
     logger.info("Stat router included in Dispatcher.")
 
-@stat_router.message(Command("give") | F.text.lower().in_({"дать", "передать"}))
+@stat_router.message(Command("give"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"дать", "передать"}))
 async def give_lumcoins(message: types.Message, profile_manager: ProfileManager):
     """Передача Lumcoins другому пользователю с ограничениями"""
     user_id = message.from_user.id
@@ -759,7 +732,8 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         logger.error(f"Error transferring Lumcoins from {user_id} to {target_user.id}: {e}")
         await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
 
-@stat_router.message(Command("transfer") | F.text.lower().in_({"перевод", "трансфер"}))
+@stat_router.message(Command("transfer"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"перевод", "трансфер"}))
 async def check_transfer_status(message: types.Message):
     """Показывает статус перевода и время до следующего возможного"""
     user_id = message.from_user.id
@@ -806,7 +780,8 @@ async def check_transfer_status(message: types.Message):
         )
 
 # Новый обработчик для команды /админы
-@stat_router.message(Command("admins") | F.text.lower().in_({"админы", "онлайн админы"}))
+@stat_router.message(Command("admins"))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"админы", "онлайн админы"}))
 async def show_online_admins(message: types.Message, bot: Bot):
     """Показывает количество онлайн администраторов в группе"""
     chat_id = message.chat.id
