@@ -301,28 +301,21 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
     if rp_stats:
         profile['hp'] = rp_stats.get('hp', 100)
 
-    logger.debug(f"Generating profile image for user {message.from_user.id}.")
-
-    # ИСПРАВЛЕНИЕ: используем экземпляр profile_manager, а не класс ProfileManager
-    image_bytes = await profile_manager.generate_profile_image(message.from_user, profile, bot)
-
-    if image_bytes is None:
-        logger.error(f"Failed to generate profile image for user {message.from_user.id}.")
-        await message.reply("❌ Не удалось сгенерировать изображение профиля!")
-        return
-
-    logger.info(f"Sending profile image to user {message.from_user.id}.")
-    payload = image_bytes.getvalue()
-    try:
-        await message.answer_photo(BufferedInputFile(payload, filename="profile.png"))
-    except TelegramNetworkError as e:
-        logger.warning(f"Timeout while sending profile image to user {message.from_user.id}, retrying once: {e}")
-        try:
-            await asyncio.sleep(1)
-            await message.answer_photo(BufferedInputFile(payload, filename="profile.png"))
-        except Exception as retry_error:
-            logger.error(f"Failed to send profile image after retry for user {message.from_user.id}: {retry_error}")
-            await message.answer("⚠️ Профиль сгенерирован, но не удалось отправить изображение из-за проблем сети Telegram. Попробуйте ещё раз.")
+    active_background = profile.get("active_background", "default")
+    text = (
+        f"👤 Профиль: {message.from_user.first_name}\n"
+        f"❤️ HP: {profile.get('hp', 100)}\n"
+        f"⭐ Уровень: {profile.get('level', 1)}\n"
+        f"✨ EXP: {profile.get('exp', 0)}\n"
+        f"💰 Lumcoins: {profile.get('lumcoins', 0)}\n"
+        f"💎 Plumcoins: {profile.get('plumcoins', 0)}\n"
+        f"🔥 Серия: {profile.get('flames', 0)}\n"
+        f"💬 Сообщений сегодня: {profile.get('daily_messages', 0)}\n"
+        f"💬 Всего сообщений: {profile.get('total_messages', 0)}\n"
+        f"🖼 Фон профиля: {active_background}\n\n"
+        f"ℹ️ Механика фонов сохранена: покупка/активация работает через магазин."
+    )
+    await message.answer(text)
 
 @stat_router.message(Command("heal"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"лечить", "мое здоровье", "хп"}))
