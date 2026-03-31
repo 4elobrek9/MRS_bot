@@ -6,6 +6,7 @@ import string
 import time
 import random
 from database import add_item_to_inventory, set_user_active_background, get_user_rp_stats, update_user_rp_stats, DB_PATH
+import database as db
 import asyncio
 import aiosqlite
 from aiogram.fsm.context import FSMContext
@@ -311,17 +312,17 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         return
 
     logger.info(f"Sending profile image to user {message.from_user.id}.")
-    profile_photo = BufferedInputFile(image_bytes.getvalue(), filename="profile.png")
+    payload = image_bytes.getvalue()
     try:
-        await message.reply_photo(profile_photo)
+        await message.answer_photo(BufferedInputFile(payload, filename="profile.png"))
     except TelegramNetworkError as e:
         logger.warning(f"Timeout while sending profile image to user {message.from_user.id}, retrying once: {e}")
         try:
             await asyncio.sleep(1)
-            await message.reply_photo(profile_photo)
+            await message.answer_photo(BufferedInputFile(payload, filename="profile.png"))
         except Exception as retry_error:
             logger.error(f"Failed to send profile image after retry for user {message.from_user.id}: {retry_error}")
-            await message.reply("⚠️ Профиль сгенерирован, но не удалось отправить изображение из-за проблем сети Telegram. Попробуйте ещё раз.")
+            await message.answer("⚠️ Профиль сгенерирован, но не удалось отправить изображение из-за проблем сети Telegram. Попробуйте ещё раз.")
 
 @stat_router.message(Command("heal"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"лечить", "мое здоровье", "хп"}))
@@ -373,12 +374,17 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
     user_id = message.from_user.id
     logger.info(f"Received 'работать' command from user {user_id}.")
 
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
+
     last_work_time = await profile_manager.get_last_work_time(user_id)
     current_time = time.time()
+    group_settings = await db.get_group_settings(message.chat.id) if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} else {}
+    cooldown = group_settings.get("work_cooldown_seconds", WorkConfig.COOLDOWN_SECONDS)
 
     # Проверка кулдауна
-    if current_time - last_work_time < WorkConfig.COOLDOWN_SECONDS:
-        remaining_time = int(WorkConfig.COOLDOWN_SECONDS - (current_time - last_work_time))
+    if current_time - last_work_time < cooldown:
+        remaining_time = int(cooldown - (current_time - last_work_time))
         minutes, seconds = divmod(remaining_time, 60)
         await message.reply(f"⏳ Вы сможете работать снова через {minutes} мин. {seconds} сек.")
         return
@@ -595,12 +601,38 @@ def setup_stat_handlers(main_dp, profile_manager, database_module, sticker_manag
     logger.info("Registering stat router handlers.")
     logger.info("Stat router included in Dispatcher.")
 
+
+async def _is_feature_enabled(message: types.Message, field_name: str) -> bool:
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return True
+    settings = await db.get_group_settings(message.chat.id)
+    enabled = bool(settings.get(field_name, True))
+    if not enabled:
+        await message.reply("⚙️ Эта функция отключена в конфиге группы.")
+    return enabled
+
+
+@stat_router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text)
+async def track_group_activity(message: types.Message, profile_manager: ProfileManager):
+    if not message.from_user:
+        return
+    if message.text.startswith('/'):
+        return
+    try:
+        await profile_manager.record_message(message.from_user)
+        await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
+        await db.log_user_interaction(message.from_user.id, "group_message", "message")
+    except Exception as e:
+        logger.error("Failed to track group activity for user %s: %s", message.from_user.id, e)
+
 @stat_router.message(Command("give"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"дать", "передать"}))
 async def give_lumcoins(message: types.Message, profile_manager: ProfileManager):
     """Передача Lumcoins другому пользователю с ограничениями"""
     user_id = message.from_user.id
     logger.info(f"Received 'дать' command from user {user_id}: '{message.text}'")
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
 
     # Парсим команду
     parts = message.text.split()
@@ -635,7 +667,8 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
     # Проверяем кулдаун (10 часов)
     last_transfer_time = await get_last_transfer_time(user_id)
     current_time = time.time()
-    cooldown_seconds = 10 * 60 * 60  # 10 часов
+    group_settings = await db.get_group_settings(message.chat.id) if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} else {}
+    cooldown_seconds = group_settings.get("transfer_cooldown_seconds", 10 * 60 * 60)
 
     if current_time - last_transfer_time < cooldown_seconds:
         remaining_time = int(cooldown_seconds - (current_time - last_transfer_time))
@@ -691,7 +724,7 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         return
 
     # Проверяем, что получатель существует в базе
-    await ensure_user_exists(target_user.id, target_user.username, target_user.first_name)
+    await db.ensure_user_exists(target_user.id, target_user.username, target_user.first_name)
 
     # Выполняем перевод
     try:
@@ -737,10 +770,13 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
 async def check_transfer_status(message: types.Message):
     """Показывает статус перевода и время до следующего возможного"""
     user_id = message.from_user.id
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
 
     last_transfer_time = await get_last_transfer_time(user_id)
     current_time = time.time()
-    cooldown_seconds = 10 * 60 * 60  # 10 часов
+    group_settings = await db.get_group_settings(message.chat.id) if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP} else {}
+    cooldown_seconds = group_settings.get("transfer_cooldown_seconds", 10 * 60 * 60)
 
     if last_transfer_time == 0:
         await message.reply(
@@ -813,3 +849,8 @@ async def show_online_admins(message: types.Message, bot: Bot):
     except Exception as e:
         logger.error(f"Error getting admins for chat {chat_id}: {e}")
         await message.reply("❌ Не удалось получить список администраторов. Пожалуйста, попробуйте позже.")
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return
+
+    if not await _is_feature_enabled(message, "economy_enabled"):
+        return

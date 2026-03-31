@@ -238,16 +238,13 @@ async def cmd_show_rp_actions_list(message: types.Message, bot: Bot):
     await message.answer(response_text, parse_mode=ParseMode.HTML)
 
 
-@rp_router.message(F.text, ~F.text.startswith('/'))
+@rp_router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text, ~F.text.startswith('/'))
 async def handle_rp_action_via_text(message: types.Message, bot: Bot, profile_manager: ProfileManager):
+    settings = await db.get_group_settings(message.chat.id)
+    if not settings.get("rp_enabled", True):
+        return
 
     logger.debug(f"handle_rp_action_via_text: Received text message: '{message.text}' from user {message.from_user.id}.")
-    try:
-        await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
-        await db.log_user_interaction(message.from_user.id, "group_message", "message")
-    except Exception as e:
-        logger.error(f"Failed to persist group message for user {message.from_user.id}: {e}")
-
     action_name, target_user, custom_text = await _parse_rp_message(message, bot)
 
     if not action_name:
@@ -258,12 +255,15 @@ async def handle_rp_action_via_text(message: types.Message, bot: Bot, profile_ma
     await handle_rp_action(message, bot, profile_manager, action_name, target_user, custom_text)
 
 
-@rp_router.message(F.text.regexp(r"^/(\w+)(?:\s+(.*?))?$")) # Updated to capture custom_text
+@rp_router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.regexp(r"^/(\w+)(?:\s+(.*?))?$")) # Updated to capture custom_text
 async def handle_rp_action_via_slash_command(message: types.Message, bot: Bot, profile_manager: ProfileManager):
     """
     Handles RP actions sent as slash commands (e.g., /kiss @username).
     """
     logger.debug(f"handle_rp_action_via_slash_command: Received slash command: '{message.text}' from user {message.from_user.id}.")
+    settings = await db.get_group_settings(message.chat.id)
+    if not settings.get("rp_enabled", True):
+        return
     try:
         await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
         await db.log_user_interaction(message.from_user.id, "group_message", "message")
