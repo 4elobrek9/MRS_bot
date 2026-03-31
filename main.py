@@ -9,6 +9,7 @@ from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import BotCommand
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
 # --- Основные импорты из CORE ---
 from core.main.ez_main import *
@@ -79,7 +80,32 @@ logger = logging.getLogger(__name__)
 # --- Константы ---
 STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 
-dp = Dispatcher(fsm_strategy=FSMStrategy.USER_IN_CHAT)
+
+class GroupBotEnabledMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        if isinstance(event, types.Message) and event.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            text = (event.text or "").strip().lower()
+            allow_when_disabled = {
+                "конфиг", "config", "cfg", "настройки", "доп. функции", "команды"
+            }
+            if text.startswith("/"):
+                cmd = text.split()[0].split("@")[0]
+                if cmd in {"/config", "/cfg", "/dop_func", "/start", "/help", "/commands"}:
+                    return await handler(event, data)
+            elif text in allow_when_disabled:
+                return await handler(event, data)
+
+            settings = await db.get_group_settings(event.chat.id)
+            if not settings.get("bot_enabled", True):
+                logger.debug("GroupBotEnabledMiddleware: bot disabled in chat %s, message ignored.", event.chat.id)
+                if text.startswith("/") or text in allow_when_disabled:
+                    await event.answer("🛑 Бот отключён в этом чате. Откройте `конфиг`/`/config`, чтобы включить обратно.")
+                return
+        return await handler(event, data)
+
+# ВАЖНО: используем единый Dispatcher из core.main.ez_main,
+# чтобы все декораторы из core.main.dec_command регистрировались
+# в том же экземпляре, который запускается в polling.
 
 async def migrate_inventory_table():
     try:
@@ -97,7 +123,7 @@ async def migrate_inventory_table():
                         user_id INTEGER,
                         item_key TEXT,
                         item_type TEXT,
-                        quantity INTEGER DEFAULT1,
+                        quantity INTEGER DEFAULT 1,
                         item_data TEXT,
                         acquired_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         PRIMARY KEY (user_id, item_key)
@@ -165,6 +191,7 @@ async def main():
     dp["profile_manager"] = profile_manager
     dp["sticker_manager"] = sticker_manager_instance
     dp["bot_instance"] = bot
+    dp.message.middleware(GroupBotEnabledMiddleware())
 
     # Регистрация роутера настроек
     dp.include_router(settings_router)
@@ -172,7 +199,7 @@ async def main():
     # Регистрация всех специализированных роутеров для команд
     setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
     setup_rpg_handlers(dp, bot, profile_manager, db)
-    setup_promo_handlers(dp, profile_manager, db)
+    setup_promo_handlers(dp, bot, profile_manager)
     setup_casino_handlers(dp, profile_manager)
     setup_rp_handlers(dp, bot, profile_manager, db)
 
@@ -184,7 +211,7 @@ async def main():
     if MISTRAL_API_KEY:
         logger.info("🔑 Mistral API Key найден, инициализирую Mistral Group Handler...")
         try:
-            bot_info = await bot.get_me()
+            bot_info = await asyncio.wait_for(bot.get_me(), timeout=10)
             bot_username = bot_info.username
 
             mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username)
@@ -200,7 +227,10 @@ async def main():
             )
             logger.info("Mistral Group Chat LLM feature ENABLED.")
         except Exception as e:
-            logger.warning("Mistral Group Chat LLM feature DISABLED (MISTRAL_API_KEY or bot_username missing).")
+            logger.warning(
+                "Mistral Group Chat LLM feature DISABLED (%r).",
+                e
+            )
     else:
         logger.warning("⚠️ MISTRAL_API_KEY не найден.")
 
@@ -237,7 +267,10 @@ async def main():
         BotCommand(command="dop_func", description="⚙️ Настройки и доп. функции группы (только для админов)"), # NEW COMMAND
     ]
 
-    await bot.set_my_commands(commands)
+    try:
+        await asyncio.wait_for(bot.set_my_commands(commands), timeout=5)
+    except Exception as e:
+        logger.warning("Не удалось быстро установить команды бота: %r", e)
 
     logger.info("Запуск поллинга...")
     try:

@@ -3,10 +3,12 @@ import logging
 import asyncio
 from typing import Dict, Any, List
 from aiogram import Router, types, F
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from core.group.stat.manager import ProfileManager
 from core.group.stat.quests_handlers import update_casino_quests
+import database as db
 logger = logging.getLogger(__name__)
 
 casino_router = Router(name="casino_router")
@@ -481,9 +483,15 @@ async def simple_slots_animation(bot, chat_id: int, message_thread_id: int = Non
     return anim_message
 
 # Главное меню казино
-@casino_router.message(F.text.lower().startswith(("казино", "/казино")))
+@casino_router.message(Command("casino"))
+@casino_router.message(F.text.func(lambda t: isinstance(t, str) and t.lower().startswith(("казино", "/казино", "/casino"))))
 async def casino_main_menu(message: types.Message, profile_manager: ProfileManager):
     """Главное меню казино - только для групп"""
+    settings = await db.get_group_settings(message.chat.id)
+    if not settings.get("casino_enabled", True):
+        await message.reply("⚙️ Казино отключено в конфиге группы.")
+        return
+
     user_id = message.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
 
