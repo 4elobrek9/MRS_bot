@@ -1,13 +1,30 @@
-from core.main.ez_main import dp, logger
+import random
+import os
+import aiohttp
+from contextlib import suppress
+from typing import Optional
+
+from core.main.ez_main import (
+    dp,
+    logger,
+    VALUE_FILE_PATH,
+    OLLAMA_API_BASE_URL,
+    OLLAMA_MODEL_NAME,
+)
 from core.main.ollama import NeuralAPI, safe_send_message, typing_animation, fetch_random_joke, StickerManager
 from core.group.stat.manager import ProfileManager
+import database as db
+from aiogram.types import InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.utils.markdown import hbold
 from aiogram.filters import Command
 from aiogram.types import Message
 from aiogram import F
-from aiogram.enums import ChatType
+from aiogram.enums import ChatType, ParseMode
 from aiogram import Bot
 
 MAX_RATING_OPPORTUNITIES = 5
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message, profile_manager: ProfileManager):
@@ -83,6 +100,34 @@ async def cmd_joke(message: Message):
     await message.answer(joke)
     await db.log_user_interaction(message.from_user.id, "joke_command", "command")
 
+
+@dp.message(Command("commands"))
+@dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"команды", "commands"}))
+async def cmd_commands_alias(message: Message):
+    response_text = (
+        "📋 **Команды бота**\n\n"
+        "👤 **Профиль и экономика**\n"
+        "• /profile — профиль игрока\n"
+        "• /work — заработать LUM\n"
+        "• /top — топ игроков\n"
+        "• /shop — магазин\n"
+        "• /pshop — PLUM-магазин\n"
+        "• /give — перевод LUM\n"
+        "• /transfer — статус кулдауна перевода\n\n"
+        "🎰 **Развлечения**\n"
+        "• /casino (или `казино`) — меню казино\n"
+        "• /joke — анекдот\n\n"
+        "⚔️ **RP команды**\n"
+        "• /rpactions — список RP-действий\n"
+        "• /heal — лечение\n"
+        "• Текстовые RP: `обнять`, `поцеловать`, `ударить` + ответ/упоминание\n\n"
+        "⚙️ **Управление группой**\n"
+        "• /config (или `конфиг`) — настройки функций группы\n"
+        "• /commands (или `команды`) — эта справка"
+    )
+    await message.answer(response_text, parse_mode=ParseMode.MARKDOWN)
+    await db.log_user_interaction(message.from_user.id, "commands_alias", "command")
+
 @dp.message(Command("check_value"))
 async def cmd_check_value(message: Message):
     """Обработчик команды /check_value для проверки значения из файла."""
@@ -127,7 +172,7 @@ async def voice_handler_msg(message: Message):
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     await message.answer("🎤 Голосовые пока не обрабатываю, но очень хочу научиться! Отправь пока текстом, пожалуйста.")
 
-@dp.message(F.chat.type == ChatType.PRIVATE, F.text)
+@dp.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith('/'))
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):
     """
     Основной обработчик текстовых сообщений в приватных чатах.
@@ -143,38 +188,43 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
     # Убеждаемся, что пользователь есть в базе данных
     await db.ensure_user_exists(user_id, message.from_user.username, message.from_user.first_name)
     
-    # Получаем текущий режим пользователя и количество возможностей для оценки
-    user_mode_data = await db.get_user_mode_and_rating_opportunities(user_id)
-    current_mode = user_mode_data.get('mode', 'saharoza') # Дефолтный режим
-    rating_opportunities_count = user_mode_data.get('rating_opportunities_count', 0)
-
     # Логируем взаимодействие
-    await db.log_user_interaction(user_id, current_mode, "message")
+    await db.log_user_interaction(user_id, "mistral_private", "message")
 
-    typing_msg = None
-    if current_mode != "off": # Не показываем анимацию, если режим "офф"
-        typing_msg = await typing_animation(message.chat.id, bot_instance)
+    typing_msg = await typing_animation(message.chat.id, bot_instance)
     
     try:
         response_text = ""
-        if current_mode == "off":
-            response_text = "Я сейчас в режиме 'Офф'. Чтобы пообщаться, выберите другой режим через /mode."
+        if not MISTRAL_API_KEY:
+            response_text = "⚠️ MISTRAL_API_KEY не настроен. ЛС-ИИ временно недоступен."
         else:
-            # Генерируем ответ с помощью NeuralAPI (Ollama)
-            response_text = await NeuralAPI.generate_response(
-                message_text=message.text,
-                user_id=user_id,
-                mode=current_mode,
-                ollama_host=OLLAMA_API_BASE_URL,
-                model_name=OLLAMA_MODEL_NAME
-            )
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": "mistral-small-latest",
+                    "messages": [
+                        {"role": "system", "content": "Ты дружелюбный ИИ-помощник. Отвечай кратко и по делу."},
+                        {"role": "user", "content": message.text}
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 300
+                }
+                headers = {
+                    "Authorization": f"Bearer {MISTRAL_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                async with session.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        response_text = data["choices"][0]["message"]["content"]
+                    else:
+                        response_text = f"⚠️ Mistral API error: {resp.status}"
         
         if not response_text:
             response_text = "Кажется, я не смог сформулировать ответ. Попробуй перефразировать?"
-            logger.warning(f"Empty or error response from NeuralAPI for user {user_id}, mode {current_mode}.")
+            logger.warning("Empty or error response from Mistral for user %s.", user_id)
         
         # Добавляем диалог в историю
-        await db.add_chat_history_entry(user_id, current_mode, message.text, response_text)
+        await db.add_chat_history_entry(user_id, "mistral_private", message.text, response_text)
 
         response_msg_obj: Optional[Message] = None
         # Пытаемся отредактировать сообщение с анимацией или отправить новое
@@ -185,7 +235,7 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
             response_msg_obj = await safe_send_message(message.chat.id, response_text)
 
         # Добавляем кнопки оценки, если это не режим "офф" и пользователь не исчерпал возможности
-        if response_msg_obj and current_mode != "off" and rating_opportunities_count < MAX_RATING_OPPORTUNITIES:
+        if response_msg_obj:
             builder = InlineKeyboardBuilder()
             # Callback data включает rating_value, message_id и preview сообщения
             builder.row(
@@ -197,21 +247,16 @@ async def handle_text_message(message: Message, bot_instance: Bot, profile_manag
                 await db.increment_user_rating_opportunity_count(user_id) # Увеличиваем счетчик
             except Exception as edit_err:
                 logger.warning(f"Could not edit reply markup for msg {response_msg_obj.message_id}: {edit_err}")
-        
-        # Случайная отправка стикера в зависимости от режима
-        if random.random() < 0.3 and current_mode in sticker_manager.sticker_packs:
-            sticker_id = sticker_manager.get_random_sticker(current_mode)
+
+        # Случайная отправка стикера
+        if random.random() < 0.3 and "saharoza" in sticker_manager.sticker_packs:
+            sticker_id = sticker_manager.get_random_sticker("saharoza")
             if sticker_id: await message.answer_sticker(sticker_id)
 
     except Exception as e:
-        logger.error(f"Error processing message for user {user_id} in mode {current_mode}: {e}", exc_info=True)
+        logger.error(f"Error processing private mistral message for user {user_id}: {e}", exc_info=True)
         # Обработка ошибок и отправка соответствующего сообщения пользователю
-        error_texts = {
-            "saharoza": "Ой, что-то пошло не так во время обработки твоего сообщения... 💔 Попробуй еще разок?",
-            "dedinside": "Так, приехали. Ошибка у меня тут. 🛠️ Попробуй снова или напиши позже.",
-            "genius": "Произошла ошибка при обработке вашего запроса. Пожалуйста, повторите попытку."
-        }
-        error_msg_text = error_texts.get(current_mode, "Произошла непредвиденная ошибка.")
+        error_msg_text = "Ой, что-то пошло не так во время обработки запроса к Mistral. Попробуй ещё раз."
         if typing_msg:
             with suppress(Exception): await typing_msg.edit_text(error_msg_text)
         else:

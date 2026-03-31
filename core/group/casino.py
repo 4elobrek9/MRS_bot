@@ -3,10 +3,12 @@ import logging
 import asyncio
 from typing import Dict, Any, List
 from aiogram import Router, types, F
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from core.group.stat.manager import ProfileManager
 from core.group.stat.quests_handlers import update_casino_quests
+import database as db
 logger = logging.getLogger(__name__)
 
 casino_router = Router(name="casino_router")
@@ -481,9 +483,15 @@ async def simple_slots_animation(bot, chat_id: int, message_thread_id: int = Non
     return anim_message
 
 # Главное меню казино
-@casino_router.message(F.text.lower().startswith(("казино", "/казино")))
+@casino_router.message(Command("casino"))
+@casino_router.message(F.text.func(lambda t: isinstance(t, str) and t.lower().startswith(("казино", "/казино", "/casino"))))
 async def casino_main_menu(message: types.Message, profile_manager: ProfileManager):
     """Главное меню казино - только для групп"""
+    settings = await db.get_group_settings(message.chat.id)
+    if not settings.get("casino_enabled", True):
+        await message.reply("⚙️ Казино отключено в конфиге группы.")
+        return
+
     user_id = message.from_user.id
     balance = await profile_manager.get_lumcoins(user_id)
 
@@ -751,13 +759,13 @@ async def roulette_bet_handler(callback: types.CallbackQuery, profile_manager: P
     user_id = callback.from_user.id
     data_parts = callback.data.split("_")
 
-    if len(data_parts) < 6:
+    if len(data_parts) < 5:
         await safe_answer_callback(callback, "❌ Ошибка в данных!")
         return
 
     choice = data_parts[3]
-    bet_amount = int(data_parts[4])
-    callback_user_id = int(data_parts[5])
+    bet_amount = int(data_parts[2])
+    callback_user_id = int(data_parts[4])
 
     if user_id != callback_user_id:
         await safe_answer_callback(callback, "❌ Это не ваша игра!", show_alert=True)
