@@ -605,31 +605,18 @@ async def _is_feature_enabled(message: types.Message, field_name: str) -> bool:
     return enabled
 
 
-@stat_router.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text)
-async def track_group_activity(message: types.Message, profile_manager: ProfileManager):
-    if not message.from_user:
+async def record_group_activity(message: types.Message, profile_manager: ProfileManager):
+    if not message.from_user or not message.text:
         return
     text = message.text.strip().lower()
     if text.startswith('/'):
         return
-
-    # ВАЖНО: не перехватываем сообщения-команды, чтобы они дошли до профильных хендлеров других роутеров.
-    command_like_prefixes = {
-        "профиль", "работать", "работа", "топ", "магазин", "инвентарь", "задания", "квесты",
-        "пмагазин", "pshop", "дать", "передать", "перевод", "трансфер",
-        "казино", "casino", "конфиг", "config", "cfg", "команды", "commands",
-        "лечить", "мое здоровье", "хп", "статистика", "анекдот", "help", "start"
-    }
-    if any(text.startswith(prefix) for prefix in command_like_prefixes):
-        logger.debug("track_group_activity: skipped command-like text '%s' from user %s", text, message.from_user.id)
-        return
-
     try:
         await profile_manager.record_message(message.from_user)
         await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
         await db.log_user_interaction(message.from_user.id, "group_message", "message")
     except Exception as e:
-        logger.error("Failed to track group activity for user %s: %s", message.from_user.id, e)
+        logger.error("Failed to record group activity for user %s: %s", message.from_user.id, e)
 
 @stat_router.message(Command("give"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"дать", "передать"}))

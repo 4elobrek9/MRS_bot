@@ -63,7 +63,8 @@ from group_stat import (
     give_lumcoins,
     check_transfer_status,
     setup_stat_handlers,
-    show_online_admins
+    show_online_admins,
+    record_group_activity,
 )
 from rp_module_refactored import (
     cmd_check_self_hp,
@@ -101,6 +102,15 @@ class GroupBotEnabledMiddleware(BaseMiddleware):
                 if text.startswith("/") or text in allow_when_disabled:
                     await event.answer("🛑 Бот отключён в этом чате. Откройте `конфиг`/`/config`, чтобы включить обратно.")
                 return
+        return await handler(event, data)
+
+
+class GroupActivityMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        if isinstance(event, types.Message) and event.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+            profile_manager = data.get("profile_manager")
+            if profile_manager is not None:
+                await record_group_activity(event, profile_manager)
         return await handler(event, data)
 
 # ВАЖНО: используем единый Dispatcher из core.main.ez_main,
@@ -192,6 +202,7 @@ async def main():
     dp["sticker_manager"] = sticker_manager_instance
     dp["bot_instance"] = bot
     dp.message.middleware(GroupBotEnabledMiddleware())
+    dp.message.middleware(GroupActivityMiddleware())
 
     # Регистрация роутера настроек
     dp.include_router(settings_router)
@@ -216,6 +227,9 @@ async def main():
 
             mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username)
             dp["mistral_handler"] = mistral_handler
+
+            warmup_response = await asyncio.wait_for(mistral_handler.warmup_ping(), timeout=15)
+            logger.info("Mistral warmup response: %s", warmup_response)
 
             # Запуск фоновой задачи для вопросов (12:00-00:00, раз в час)
             mistral_task = asyncio.create_task(mistral_handler.periodic_question_task())

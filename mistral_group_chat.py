@@ -120,6 +120,31 @@ class MistralGroupHandler:
             logger.error(f"Mistral Request Failed: {e}")
             return ""
 
+    async def warmup_ping(self) -> str:
+        """Проверочный запрос к Mistral на старте."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": "Ответь коротко и дружелюбно."},
+                        {"role": "user", "content": "Привет"}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 40
+                }
+                headers = {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                }
+                async with session.post(f"{self.base_url}/chat/completions", json=payload, headers=headers) as resp:
+                    if resp.status != 200:
+                        return f"warmup failed status={resp.status}: {await resp.text()}"
+                    data = await resp.json()
+                    return data['choices'][0]['message']['content']
+        except Exception as e:
+            return f"warmup exception: {e!r}"
+
     async def handle_all_group_messages(self, message: types.Message):
         """Основной метод обработки входящего сообщения"""
         chat_id = message.chat.id
