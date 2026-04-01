@@ -283,7 +283,12 @@ async def process_activate_background(callback: types.CallbackQuery, profile_man
 
 # В файле group_stat.py
 @stat_router.message(Command("profile"))
-@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower().startswith("профиль")))
+@stat_router.message(
+    F.text.func(
+        lambda text: isinstance(text, str)
+        and text.strip().lower().strip(".,!?:;").startswith("профиль")
+    )
+)
 async def show_profile(message: types.Message, profile_manager: ProfileManager, bot: Bot):
     logger.info(f"DEBUG: show_profile handler entered for user {message.from_user.id} with text '{message.text}'.")
 
