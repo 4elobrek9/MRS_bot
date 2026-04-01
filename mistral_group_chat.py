@@ -274,7 +274,17 @@ class MistralGroupHandler:
             if response:
                 final_response = apply_watermark(response)
                 try:
-                    await message.reply(final_response, parse_mode=ParseMode.MARKDOWN)
+                    reply_target_message_id = message.message_id
+                    if message.reply_to_message is not None:
+                        # Если пользователь ответил на чье-то сообщение,
+                        # AI отвечает в ту же ветку (реплай к исходному сообщению).
+                        reply_target_message_id = message.reply_to_message.message_id
+                    await self.bot.send_message(
+                        chat_id,
+                        final_response,
+                        parse_mode=ParseMode.MARKDOWN,
+                        reply_to_message_id=reply_target_message_id,
+                    )
                     self._add_to_history(chat_id, self.bot_username, response, is_bot=True)
                     logger.info(f"Mistral replied to {chat_id}")
                 except TelegramAPIError as e:

@@ -14,10 +14,20 @@ logger = logging.getLogger(__name__)
 
 settings_router = Router(name="settings_router")
 
+
+def _normalize_group_command(text: str) -> str:
+    return (text or "").strip().lower().strip(".,!?:;")
+
 # --- Главное меню настроек (команда "доп. функции") ---
 
 @settings_router.message(Command("dop_func", "config", "cfg"))
-@settings_router.message(F.text.lower().in_({"доп. функции", "дополнительные функции", "настройки", "settings", "конфиг", "config"}))
+@settings_router.message(
+    F.text.func(
+        lambda text: isinstance(text, str) and _normalize_group_command(text) in {
+            "доп. функции", "дополнительные функции", "настройки", "settings", "конфиг", "config", "cfg"
+        }
+    )
+)
 async def cmd_show_group_settings(message: types.Message, bot: Bot):
     """Показывает меню дополнительных функций/настроек группы."""
     if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP]:
