@@ -25,6 +25,46 @@ from aiogram import Bot
 
 MAX_RATING_OPPORTUNITIES = 5
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_TRANSCRIBE_MODEL = os.getenv("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-mini-transcribe")
+
+
+async def _transcribe_telegram_media(message: Message, bot: Bot, file_id: str, filename: str) -> Optional[str]:
+    """Скачивает медиа из Telegram и отправляет в OpenAI Audio Transcriptions."""
+    if not OPENAI_API_KEY:
+        logger.warning("OPENAI_API_KEY is not set, skipping transcription.")
+        return None
+
+    try:
+        tg_file = await bot.get_file(file_id)
+        file_buffer = await bot.download(tg_file)
+        if file_buffer is None:
+            return None
+        file_bytes = file_buffer.read()
+        if not file_bytes:
+            return None
+
+        form = aiohttp.FormData()
+        form.add_field("model", OPENAI_TRANSCRIBE_MODEL)
+        form.add_field("response_format", "text")
+        form.add_field("file", file_bytes, filename=filename, content_type="application/octet-stream")
+
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+        timeout = aiohttp.ClientTimeout(total=90)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                data=form,
+                headers=headers,
+            ) as resp:
+                if resp.status != 200:
+                    logger.error("OpenAI transcription error %s: %s", resp.status, await resp.text())
+                    return None
+                text = (await resp.text()).strip()
+                return text or None
+    except Exception as e:
+        logger.error("Failed to transcribe media: %s", e, exc_info=True)
+        return None
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message, profile_manager: ProfileManager):
@@ -165,12 +205,31 @@ async def photo_handler(message: Message):
     await message.answer(f"📸 Фото получил! Комментарий: '{caption[:100]}...'. Пока не умею анализировать изображения, но скоро научусь!")
 
 @dp.message(F.voice)
-async def voice_handler_msg(message: Message):
-    """Обработчик для входящих голосовых сообщений."""
+async def voice_handler_msg(message: Message, bot: Bot):
+    """Расшифровка голосовых в текст."""
     user = message.from_user
-    if not user: return
+    if not user or not message.voice:
+        return
     await db.ensure_user_exists(user.id, user.username, user.first_name)
-    await message.answer("🎤 Голосовые пока не обрабатываю, но очень хочу научиться! Отправь пока текстом, пожалуйста.")
+    text = await _transcribe_telegram_media(message, bot, message.voice.file_id, f"voice_{message.voice.file_unique_id}.ogg")
+    if not text:
+        await message.reply("❌ Не удалось расшифровать голосовое.")
+        return
+    await message.reply(f"📝 Расшифровка голосового:\n{text}")
+
+
+@dp.message(F.video_note)
+async def video_note_handler_msg(message: Message, bot: Bot):
+    """Расшифровка кружков в текст."""
+    user = message.from_user
+    if not user or not message.video_note:
+        return
+    await db.ensure_user_exists(user.id, user.username, user.first_name)
+    text = await _transcribe_telegram_media(message, bot, message.video_note.file_id, f"video_note_{message.video_note.file_unique_id}.mp4")
+    if not text:
+        await message.reply("❌ Не удалось расшифровать кружок.")
+        return
+    await message.reply(f"📝 Расшифровка кружка:\n{text}")
 
 @dp.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith('/'))
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):

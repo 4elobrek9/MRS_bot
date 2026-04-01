@@ -226,13 +226,6 @@ class MistralGroupHandler:
             logger.debug("Skipping AI in chat %s due to high activity: %s users", chat_id, active_participants)
             return UNHANDLED
 
-        # 4) Умная активность: если одновременно активно много людей — AI молчит
-        active_participants = self._update_recent_activity(chat_id, user_id)
-        self._register_participant(chat_id, user_id, username)
-        if active_participants >= self.max_active_participants:
-            logger.debug("Skipping AI in chat %s due to high activity: %s users", chat_id, active_participants)
-            return
-
         # 1. Сохраняем сообщение в историю (всегда, даже если не отвечаем)
         self._add_to_history(chat_id, username, text, is_bot=False)
 
