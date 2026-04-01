@@ -10,6 +10,7 @@ import aiohttp
 from aiogram import Bot, types
 from aiogram.enums import ParseMode, ChatType
 from aiogram.exceptions import TelegramAPIError
+from aiogram.dispatcher.event.bases import UNHANDLED
 from core.main.watermark import apply_watermark
 import database as db # ❗ NEW: Добавьте этот импорт
 
@@ -188,14 +189,14 @@ class MistralGroupHandler:
 
         # Проверяем, что это групповой чат и не бот
         if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP] or message.from_user.is_bot:
-            return
+            return UNHANDLED
 
         raw_message_text = message.text or ""
         message_text = self._normalize_message_text(raw_message_text)
 
         # 1) Сначала отсекаем команды (/команды)
         if raw_message_text.startswith('/'):
-            return
+            return UNHANDLED
 
         # 2) Потом отсекаем текстовые игровые/RP/конфиг команды
         text_commands_to_ignore = {
@@ -212,11 +213,18 @@ class MistralGroupHandler:
              message_text = message_text.replace(f"@{self.bot_username}".lower(), "").strip()
 
         if message_text in text_commands_to_ignore:
-            return # Если текст совпадает с командой, LLM игнорирует его.
+            return UNHANDLED  # Если текст совпадает с командой, LLM игнорирует его.
 
         # 3) Проверяем статус LLM в группе (в конфиге можно выключить полностью)
         if not await db.get_ai_status(chat_id):
-            return # AI выключен, игнорируем сообщение
+            return UNHANDLED  # AI выключен, игнорируем сообщение
+
+        # 4) Умная активность: если одновременно активно много людей — AI молчит
+        active_participants = self._update_recent_activity(chat_id, user_id)
+        self._register_participant(chat_id, user_id, username)
+        if active_participants >= self.max_active_participants:
+            logger.debug("Skipping AI in chat %s due to high activity: %s users", chat_id, active_participants)
+            return UNHANDLED
 
         # 4) Умная активность: если одновременно активно много людей — AI молчит
         active_participants = self._update_recent_activity(chat_id, user_id)
@@ -230,7 +238,7 @@ class MistralGroupHandler:
 
         # Если сообщение от бота - игнорируем дальнейшую обработку (но в историю сохранили)
         if message.from_user.is_bot:
-            return
+            return UNHANDLED
 
         # 2. Проверка контекста пользователя (активный диалог)
         is_in_context = False
@@ -291,6 +299,7 @@ class MistralGroupHandler:
                     logger.info(f"Mistral replied to {chat_id}")
                 except TelegramAPIError as e:
                     logger.error(f"Failed to send message: {e}")
+        return UNHANDLED
 
     async def periodic_question_task(self):
         """Фоновая задача: задавать вопросы раз в час"""
