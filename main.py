@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Callable, Awaitable, Dict, Any
 from aiogram import Dispatcher, F, Router, Bot, types
@@ -85,7 +86,8 @@ STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 class GroupBotEnabledMiddleware(BaseMiddleware):
     @staticmethod
     def _normalize_text(text: str) -> str:
-        return text.strip().lower().strip(".,!?:;")
+        normalized = (text or "").strip().lower()
+        return re.sub(r"[\s\.,!?:;]+$", "", normalized)
 
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message) and event.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:

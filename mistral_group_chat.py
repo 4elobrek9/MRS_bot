@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import random
+import re
 from datetime import datetime, time
 from typing import Dict, List, Deque, Set
 from collections import deque
@@ -83,7 +84,8 @@ class MistralGroupHandler:
 
     @staticmethod
     def _normalize_message_text(text: str) -> str:
-        return (text or "").strip().lower().strip(".,!?:;")
+        normalized = (text or "").strip().lower()
+        return re.sub(r"[\s\.,!?:;]+$", "", normalized)
 
     def _register_participant(self, chat_id: int, user_id: int, username: str):
         if chat_id not in self.chat_participants:

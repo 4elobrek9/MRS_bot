@@ -1,4 +1,5 @@
 import logging
+import re
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command
 from aiogram.enums import ChatType, ParseMode
@@ -16,7 +17,8 @@ settings_router = Router(name="settings_router")
 
 
 def _normalize_group_command(text: str) -> str:
-    return (text or "").strip().lower().strip(".,!?:;")
+    normalized = (text or "").strip().lower()
+    return re.sub(r"[\s\.,!?:;]+$", "", normalized)
 
 # --- Главное меню настроек (команда "доп. функции") ---
 
