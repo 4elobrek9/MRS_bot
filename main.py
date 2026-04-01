@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Callable, Awaitable, Dict, Any
 from aiogram import Dispatcher, F, Router, Bot, types
@@ -83,14 +84,20 @@ STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 
 
 class GroupBotEnabledMiddleware(BaseMiddleware):
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        normalized = (text or "").strip().lower()
+        return re.sub(r"[\s\.,!?:;]+$", "", normalized)
+
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message) and event.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-            text = (event.text or "").strip().lower()
+            raw_text = event.text or ""
+            text = self._normalize_text(raw_text)
             allow_when_disabled = {
                 "конфиг", "config", "cfg", "настройки", "доп. функции", "команды"
             }
-            if text.startswith("/"):
-                cmd = text.split()[0].split("@")[0]
+            if raw_text.startswith("/"):
+                cmd = raw_text.strip().lower().split()[0].split("@")[0]
                 if cmd in {"/config", "/cfg", "/dop_func", "/start", "/help", "/commands"}:
                     return await handler(event, data)
             elif text in allow_when_disabled:
@@ -99,7 +106,7 @@ class GroupBotEnabledMiddleware(BaseMiddleware):
             settings = await db.get_group_settings(event.chat.id)
             if not settings.get("bot_enabled", True):
                 logger.debug("GroupBotEnabledMiddleware: bot disabled in chat %s, message ignored.", event.chat.id)
-                if text.startswith("/") or text in allow_when_disabled:
+                if raw_text.startswith("/") or text in allow_when_disabled:
                     await event.answer("🛑 Бот отключён в этом чате. Откройте `конфиг`/`/config`, чтобы включить обратно.")
                 return
         return await handler(event, data)
