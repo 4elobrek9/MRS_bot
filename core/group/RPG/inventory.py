@@ -16,8 +16,10 @@ import aiosqlite
 import asyncio
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+import database as db
 
 logger = logging.getLogger(__name__)
+quick_item_use_cache = {}
 
 async def get_user_lumcoins(profile_manager, user_id: int) -> int:
     try:
@@ -394,6 +396,37 @@ async def handle_item_info(callback: types.CallbackQuery, profile_manager):
             for eff, val in effect.items():
                 text += f"   {eff}: {val}\n"
         
+        quick_use = quick_item_use_cache.get(user_id)
+        is_double_tap = (
+            quick_use
+            and quick_use.get("item_key") == item_key
+            and time.time() - quick_use.get("timestamp", 0) <= 5
+        )
+
+        if is_double_tap and item_key == "health_potion":
+            rp_stats = await db.get_user_rp_stats(user_id)
+            current_hp = rp_stats.get("hp", 100)
+            max_hp = 100
+            heal_value = int(item_info.get("effect", {}).get("heal", 30))
+            if current_hp >= max_hp:
+                await callback.answer("❤️ HP уже полное.", show_alert=True)
+                return
+
+            removed = await remove_item_from_inventory(user_id, item_key, quantity=1)
+            if not removed:
+                await callback.answer("❌ Не удалось использовать зелье.", show_alert=True)
+                return
+
+            new_hp = min(max_hp, current_hp + heal_value)
+            await db.update_user_rp_stats(user_id, hp=new_hp)
+            del quick_item_use_cache[user_id]
+            await callback.answer(f"🧪 Использовано зелье! HP: {new_hp}/{max_hp}", show_alert=True)
+            return
+
+        quick_item_use_cache[user_id] = {"item_key": item_key, "timestamp": time.time()}
+        if item_key == "health_potion":
+            text += "\n\n💡 Нажмите ещё раз в течение 5 сек, чтобы использовать."
+
         await callback.answer(text, show_alert=True)
         
     except Exception as e:
