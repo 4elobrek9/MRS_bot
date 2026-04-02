@@ -289,6 +289,7 @@ async def main():
         BotCommand(command="marry", description="💍 Предложить брак (ответом)"),
         BotCommand(command="breakup", description="💔 Завершить отношения (ответом)"),
         BotCommand(command="myrelations", description="💞 Показать свои отношения в группе"),
+        BotCommand(command="relations", description="💞 Статус отношений/близости (алиас)"),
 
         # Разное
         BotCommand(command="joke", description="🤣 Случайный анекдот (также 'анекдот')"),

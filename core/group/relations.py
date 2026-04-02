@@ -52,7 +52,7 @@ async def _send_relation_request(message: types.Message, kind: str):
 
 
 @relations_router.message(Command("friend"))
-@relations_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() == "дружить"))
+@relations_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"дружить", "дружба"}))
 async def cmd_friend(message: types.Message):
     await _send_relation_request(message, "friend")
 
@@ -115,7 +115,8 @@ async def cmd_breakup(message: types.Message):
 
 
 @relations_router.message(Command("myrelations"))
-@relations_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"мои отношения", "отношения мои"}))
+@relations_router.message(Command("relations"))
+@relations_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"мои отношения", "отношения мои", "отношения", "отн"}))
 async def cmd_my_relations(message: types.Message, bot: Bot):
     if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
         return
@@ -127,6 +128,8 @@ async def cmd_my_relations(message: types.Message, bot: Bot):
     lines = ["💞 Ваши отношения в этой группе:"]
     for rel in relations[:10]:
         member = await bot.get_chat_member(message.chat.id, rel["partner_id"])
-        lines.append(f"• {REL_LABELS.get(rel['relation_type'], rel['relation_type'])} с {member.user.full_name}")
+        lines.append(
+            f"• {REL_LABELS.get(rel['relation_type'], rel['relation_type'])} с {member.user.full_name} "
+            f"(близость: {rel.get('intimacy_level', 0)})"
+        )
     await message.reply("\n".join(lines))
-

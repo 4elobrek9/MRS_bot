@@ -58,7 +58,7 @@ async def cmd_show_group_settings(message: types.Message, bot: Bot):
 
 # --- Обработчик колбэков ---
 
-@settings_router.callback_query(F.data.regexp(r"^toggle:(bot|ai|rp|economy|casino|promo)$"))
+@settings_router.callback_query(F.data.regexp(r"^toggle:(bot|ai|rp|economy|casino|promo|stt)$"))
 async def handle_ai_toggle_callback(callback: types.CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     chat_id = callback.message.chat.id
@@ -136,6 +136,7 @@ async def _build_settings_ui(chat_id: int):
         f"💰 Экономика: {on_off(settings['economy_enabled'])}\n"
         f"🎰 Казино: {on_off(settings['casino_enabled'])}\n"
         f"🎟 Промокоды: {on_off(settings['promo_enabled'])}\n\n"
+        f"🎤 Расшифровка ГС/кружков: {on_off(settings['stt_enabled'])}\n\n"
         f"⏳ Work кулдаун: **{work_cd_min} мин**\n"
         f"⏳ Transfer кулдаун: **{transfer_cd_hours} ч**"
     )
@@ -151,6 +152,7 @@ async def _build_settings_ui(chat_id: int):
         InlineKeyboardButton(text=f"Казино {on_off(settings['casino_enabled'])}", callback_data="toggle:casino"),
     )
     builder.row(InlineKeyboardButton(text=f"Промо {on_off(settings['promo_enabled'])}", callback_data="toggle:promo"))
+    builder.row(InlineKeyboardButton(text=f"STT {on_off(settings['stt_enabled'])}", callback_data="toggle:stt"))
     builder.row(
         InlineKeyboardButton(text="Work 5м", callback_data="setcd:work:300"),
         InlineKeyboardButton(text="Work 15м", callback_data="setcd:work:900"),

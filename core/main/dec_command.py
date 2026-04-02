@@ -25,6 +25,7 @@ from aiogram.types import Message
 from aiogram import F
 from aiogram.enums import ChatType, ParseMode
 from aiogram import Bot
+from command import cmd_help
 
 MAX_RATING_OPPORTUNITIES = 5
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
@@ -179,28 +180,7 @@ async def cmd_joke(message: Message):
 @dp.message(Command("commands"))
 @dp.message(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}), F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"команды", "commands"}))
 async def cmd_commands_alias(message: Message):
-    response_text = (
-        "📋 **Команды бота**\n\n"
-        "👤 **Профиль и экономика**\n"
-        "• /profile — профиль игрока\n"
-        "• /work — заработать LUM\n"
-        "• /top — топ игроков\n"
-        "• /shop — магазин\n"
-        "• /pshop — PLUM-магазин\n"
-        "• /give — перевод LUM\n"
-        "• /transfer — статус кулдауна перевода\n\n"
-        "🎰 **Развлечения**\n"
-        "• /casino (или `казино`) — меню казино\n"
-        "• /joke — анекдот\n\n"
-        "⚔️ **RP команды**\n"
-        "• /rpactions — список RP-действий\n"
-        "• /heal — лечение\n"
-        "• Текстовые RP: `обнять`, `поцеловать`, `ударить` + ответ/упоминание\n\n"
-        "⚙️ **Управление группой**\n"
-        "• /config (или `конфиг`) — настройки функций группы\n"
-        "• /commands (или `команды`) — эта справка"
-    )
-    await message.answer(response_text, parse_mode=ParseMode.MARKDOWN)
+    await cmd_help(message)
     await db.log_user_interaction(message.from_user.id, "commands_alias", "command")
 
 @dp.message(Command("check_value"))
@@ -245,6 +225,10 @@ async def voice_handler_msg(message: Message, bot: Bot):
     user = message.from_user
     if not user or not message.voice:
         return
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        settings = await db.get_group_settings(message.chat.id)
+        if not settings.get("stt_enabled", True):
+            return
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     text = await _transcribe_telegram_media(message, bot, message.voice.file_id, f"voice_{message.voice.file_unique_id}.ogg")
     if not text:
@@ -262,6 +246,10 @@ async def video_note_handler_msg(message: Message, bot: Bot):
     user = message.from_user
     if not user or not message.video_note:
         return
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        settings = await db.get_group_settings(message.chat.id)
+        if not settings.get("stt_enabled", True):
+            return
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     text = await _transcribe_telegram_media(message, bot, message.video_note.file_id, f"video_note_{message.video_note.file_unique_id}.mp4")
     if not text:

@@ -307,6 +307,21 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         profile['hp'] = rp_stats.get('hp', 100)
 
     active_background = profile.get("active_background", "default")
+    relations_text = "нет"
+    if message.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        try:
+            user_relations = await db.get_user_group_relationships(message.chat.id, message.from_user.id)
+            if user_relations:
+                rel_labels = {"friend": "🤝 дружба", "romantic": "💘 отношения", "married": "💍 брак"}
+                top_rel = user_relations[0]
+                partner = await bot.get_chat_member(message.chat.id, top_rel["partner_id"])
+                relations_text = (
+                    f"{rel_labels.get(top_rel['relation_type'], top_rel['relation_type'])} с {partner.user.full_name} "
+                    f"(близость: {top_rel.get('intimacy_level', 0)})"
+                )
+        except Exception as e:
+            logger.warning("Failed to load relationship info for profile: %s", e)
+
     text = (
         "╔═══════════════╗\n"
         "✨ **ПРОФИЛЬ ИГРОКА** ✨\n"
@@ -321,6 +336,7 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         f"💬 **Сегодня сообщений:** `{profile.get('daily_messages', 0)}`\n"
         f"🧾 **Всего сообщений:** `{profile.get('total_messages', 0)}`\n"
         f"🖼 **Активный фон:** `{active_background}`\n\n"
+        f"💞 **Отношения:** {relations_text}\n\n"
         "ℹ️ Фоны можно менять через `/shop`."
     )
     await message.answer(text, parse_mode=ParseMode.MARKDOWN)
