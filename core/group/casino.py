@@ -1,6 +1,7 @@
 import random
 import logging
 import asyncio
+import re
 from typing import Dict, Any, List
 from aiogram import Router, types, F
 from aiogram.filters import Command
@@ -484,7 +485,12 @@ async def simple_slots_animation(bot, chat_id: int, message_thread_id: int = Non
 
 # Главное меню казино
 @casino_router.message(Command("casino"))
-@casino_router.message(F.text.func(lambda t: isinstance(t, str) and t.lower().startswith(("казино", "/казино", "/casino"))))
+@casino_router.message(
+    F.text.func(
+        lambda t: isinstance(t, str)
+        and re.sub(r"[\s\.,!?:;]+$", "", t.strip().lower()).startswith(("казино", "/казино", "/casino"))
+    )
+)
 async def casino_main_menu(message: types.Message, profile_manager: ProfileManager):
     """Главное меню казино - только для групп"""
     settings = await db.get_group_settings(message.chat.id)

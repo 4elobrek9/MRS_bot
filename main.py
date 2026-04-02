@@ -1,13 +1,14 @@
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Callable, Awaitable, Dict, Any
 from aiogram import Dispatcher, F, Router, Bot, types
 from aiogram.fsm.strategy import FSMStrategy
 from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.types import BotCommand
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
@@ -19,6 +20,7 @@ from core.main.dec_command import *
 from core.main.watermark import apply_watermark
 from mistral_group_chat import MistralGroupHandler
 from core.group.group_settings_handler import settings_router
+from core.group.relations import relations_router
 
 # --- Импорты модулей из CORE ---
 from core.group.stat.manager import ProfileManager
@@ -83,14 +85,20 @@ STICKERS_CACHE_FILE = Path("data") / "stickers_cache.json"
 
 
 class GroupBotEnabledMiddleware(BaseMiddleware):
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        normalized = (text or "").strip().lower()
+        return re.sub(r"[\s\.,!?:;]+$", "", normalized)
+
     async def __call__(self, handler, event, data):
         if isinstance(event, types.Message) and event.chat.type in {ChatType.GROUP, ChatType.SUPERGROUP}:
-            text = (event.text or "").strip().lower()
+            raw_text = event.text or ""
+            text = self._normalize_text(raw_text)
             allow_when_disabled = {
                 "конфиг", "config", "cfg", "настройки", "доп. функции", "команды"
             }
-            if text.startswith("/"):
-                cmd = text.split()[0].split("@")[0]
+            if raw_text.startswith("/"):
+                cmd = raw_text.strip().lower().split()[0].split("@")[0]
                 if cmd in {"/config", "/cfg", "/dop_func", "/start", "/help", "/commands"}:
                     return await handler(event, data)
             elif text in allow_when_disabled:
@@ -99,7 +107,7 @@ class GroupBotEnabledMiddleware(BaseMiddleware):
             settings = await db.get_group_settings(event.chat.id)
             if not settings.get("bot_enabled", True):
                 logger.debug("GroupBotEnabledMiddleware: bot disabled in chat %s, message ignored.", event.chat.id)
-                if text.startswith("/") or text in allow_when_disabled:
+                if raw_text.startswith("/") or text in allow_when_disabled:
                     await event.answer("🛑 Бот отключён в этом чате. Откройте `конфиг`/`/config`, чтобы включить обратно.")
                 return
         return await handler(event, data)
@@ -112,6 +120,17 @@ class GroupActivityMiddleware(BaseMiddleware):
             if profile_manager is not None:
                 await record_group_activity(event, profile_manager)
         return await handler(event, data)
+
+
+class TelegramRetryMiddleware(BaseMiddleware):
+    """Повторяет обработку события при кратковременных сетевых ошибках Telegram API."""
+    async def __call__(self, handler, event, data):
+        try:
+            return await handler(event, data)
+        except TelegramNetworkError as e:
+            logger.warning("TelegramNetworkError on update, retry once: %r", e)
+            await asyncio.sleep(0.7)
+            return await handler(event, data)
 
 # ВАЖНО: используем единый Dispatcher из core.main.ez_main,
 # чтобы все декораторы из core.main.dec_command регистрировались
@@ -172,6 +191,7 @@ async def main():
     await db.initialize_database()
     await db.create_promo_table()
     await db.create_group_settings_table()
+    await db.create_relationships_table()
 
     logger.info("Проверка миграции...")
     await migrate_inventory_table()
@@ -203,9 +223,11 @@ async def main():
     dp["bot_instance"] = bot
     dp.message.middleware(GroupBotEnabledMiddleware())
     dp.message.middleware(GroupActivityMiddleware())
+    dp.message.middleware(TelegramRetryMiddleware())
 
     # Регистрация роутера настроек
     dp.include_router(settings_router)
+    dp.include_router(relations_router)
 
     # Регистрация всех специализированных роутеров для команд
     setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
@@ -225,7 +247,7 @@ async def main():
             bot_info = await asyncio.wait_for(bot.get_me(), timeout=10)
             bot_username = bot_info.username
 
-            mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username)
+            mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username, sticker_manager_instance)
             dp["mistral_handler"] = mistral_handler
 
             warmup_response = await asyncio.wait_for(mistral_handler.warmup_ping(), timeout=15)
@@ -274,6 +296,12 @@ async def main():
         BotCommand(command="myhp", description="❤️ Проверить здоровье (также 'мое здоровье')"),
         BotCommand(command="heal", description="💊 Использовать аптечку (также 'лечить')"),
         BotCommand(command="rpactions", description="⚔️ Список доступных RP действий (также 'рп действия')"),
+        BotCommand(command="friend", description="🤝 Предложить дружбу (ответом на сообщение)"),
+        BotCommand(command="love", description="💘 Предложить романтические отношения (ответом)"),
+        BotCommand(command="marry", description="💍 Предложить брак (ответом)"),
+        BotCommand(command="breakup", description="💔 Завершить отношения (ответом)"),
+        BotCommand(command="myrelations", description="💞 Показать свои отношения в группе"),
+        BotCommand(command="relations", description="💞 Статус отношений/близости (алиас)"),
 
         # Разное
         BotCommand(command="joke", description="🤣 Случайный анекдот (также 'анекдот')"),

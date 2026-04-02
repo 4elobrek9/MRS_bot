@@ -541,6 +541,7 @@ async def create_group_settings_table():
                 economy_enabled INTEGER NOT NULL DEFAULT 1,
                 casino_enabled INTEGER NOT NULL DEFAULT 1,
                 promo_enabled INTEGER NOT NULL DEFAULT 1,
+                stt_enabled INTEGER NOT NULL DEFAULT 1,
                 work_cooldown_seconds INTEGER NOT NULL DEFAULT 900,
                 transfer_cooldown_seconds INTEGER NOT NULL DEFAULT 36000
             )
@@ -555,6 +556,7 @@ async def create_group_settings_table():
             "economy_enabled": "INTEGER NOT NULL DEFAULT 1",
             "casino_enabled": "INTEGER NOT NULL DEFAULT 1",
             "promo_enabled": "INTEGER NOT NULL DEFAULT 1",
+            "stt_enabled": "INTEGER NOT NULL DEFAULT 1",
             "work_cooldown_seconds": "INTEGER NOT NULL DEFAULT 900",
             "transfer_cooldown_seconds": "INTEGER NOT NULL DEFAULT 36000",
         }
@@ -596,13 +598,14 @@ async def get_group_settings(chat_id: int) -> Dict[str, Any]:
         "economy_enabled": True,
         "casino_enabled": True,
         "promo_enabled": True,
+        "stt_enabled": True,
         "work_cooldown_seconds": 900,
         "transfer_cooldown_seconds": 36000,
     }
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT ai_enabled, rp_enabled, economy_enabled, casino_enabled, promo_enabled,
+            SELECT ai_enabled, rp_enabled, economy_enabled, casino_enabled, promo_enabled, stt_enabled,
                    work_cooldown_seconds, transfer_cooldown_seconds, bot_enabled
             FROM group_settings WHERE chat_id = ?
             """,
@@ -617,9 +620,10 @@ async def get_group_settings(chat_id: int) -> Dict[str, Any]:
             "economy_enabled": bool(row[2]),
             "casino_enabled": bool(row[3]),
             "promo_enabled": bool(row[4]),
-            "work_cooldown_seconds": int(row[5] or 900),
-            "transfer_cooldown_seconds": int(row[6] or 36000),
-            "bot_enabled": bool(row[7]),
+            "stt_enabled": bool(row[5]),
+            "work_cooldown_seconds": int(row[6] or 900),
+            "transfer_cooldown_seconds": int(row[7] or 36000),
+            "bot_enabled": bool(row[8]),
         }
 
 async def set_group_setting(chat_id: int, field: str, value: Any) -> None:
@@ -630,6 +634,7 @@ async def set_group_setting(chat_id: int, field: str, value: Any) -> None:
         "economy_enabled",
         "casino_enabled",
         "promo_enabled",
+        "stt_enabled",
         "work_cooldown_seconds",
         "transfer_cooldown_seconds",
     }
@@ -646,3 +651,120 @@ async def set_group_setting(chat_id: int, field: str, value: Any) -> None:
             (value, chat_id),
         )
         await db.commit()
+
+
+async def create_relationships_table() -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS group_relationships (
+                chat_id INTEGER NOT NULL,
+                user1_id INTEGER NOT NULL,
+                user2_id INTEGER NOT NULL,
+                relation_type TEXT NOT NULL CHECK (relation_type IN ('friend', 'romantic', 'married')),
+                intimacy_level INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chat_id, user1_id, user2_id)
+            )
+            '''
+        )
+        cursor = await db.execute("PRAGMA table_info(group_relationships)")
+        columns = {col[1] for col in await cursor.fetchall()}
+        if "intimacy_level" not in columns:
+            await db.execute("ALTER TABLE group_relationships ADD COLUMN intimacy_level INTEGER NOT NULL DEFAULT 0")
+        await db.commit()
+
+
+def _normalize_pair(user_a: int, user_b: int) -> Tuple[int, int]:
+    return (user_a, user_b) if user_a < user_b else (user_b, user_a)
+
+
+async def set_group_relationship(chat_id: int, user_a: int, user_b: int, relation_type: str) -> None:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            INSERT INTO group_relationships (chat_id, user1_id, user2_id, relation_type)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(chat_id, user1_id, user2_id) DO UPDATE SET
+                relation_type = excluded.relation_type,
+                created_at = CURRENT_TIMESTAMP
+            ''',
+            (chat_id, user1, user2, relation_type),
+        )
+        await db.commit()
+
+
+async def get_group_relationship(chat_id: int, user_a: int, user_b: int) -> Optional[Dict[str, Any]]:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            '''
+            SELECT relation_type, intimacy_level, created_at
+            FROM group_relationships
+            WHERE chat_id = ? AND user1_id = ? AND user2_id = ?
+            ''',
+            (chat_id, user1, user2),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {"relation_type": row[0], "intimacy_level": int(row[1] or 0), "created_at": row[2]}
+
+
+async def remove_group_relationship(chat_id: int, user_a: int, user_b: int) -> None:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            DELETE FROM group_relationships
+            WHERE chat_id = ? AND user1_id = ? AND user2_id = ?
+            ''',
+            (chat_id, user1, user2),
+        )
+        await db.commit()
+
+
+async def increment_relationship_intimacy(chat_id: int, user_a: int, user_b: int, delta: int = 1) -> Optional[int]:
+    if delta <= 0:
+        return None
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            '''
+            UPDATE group_relationships
+            SET intimacy_level = intimacy_level + ?
+            WHERE chat_id = ? AND user1_id = ? AND user2_id = ?
+            RETURNING intimacy_level
+            ''',
+            (delta, chat_id, user1, user2),
+        )
+        row = await cursor.fetchone()
+        await db.commit()
+        return int(row[0]) if row else None
+
+
+async def get_user_group_relationships(chat_id: int, user_id: int) -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            '''
+            SELECT user1_id, user2_id, relation_type, intimacy_level, created_at
+            FROM group_relationships
+            WHERE chat_id = ? AND (user1_id = ? OR user2_id = ?)
+            ORDER BY created_at DESC
+            ''',
+            (chat_id, user_id, user_id),
+        )
+        rows = await cursor.fetchall()
+        result: List[Dict[str, Any]] = []
+        for user1, user2, relation_type, intimacy_level, created_at in rows:
+            partner_id = user2 if user1 == user_id else user1
+            result.append(
+                {
+                    "partner_id": partner_id,
+                    "relation_type": relation_type,
+                    "intimacy_level": int(intimacy_level or 0),
+                    "created_at": created_at,
+                }
+            )
+        return result
