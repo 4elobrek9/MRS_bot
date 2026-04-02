@@ -1,4 +1,5 @@
 import logging
+import time
 from aiogram import Router, types, F, Bot
 from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -14,6 +15,41 @@ REL_LABELS = {
     "romantic": "💘 Романтика",
     "married": "💍 Брак",
 }
+
+
+def _intimacy_tier_title(relation_type: str, intimacy_level: int) -> str:
+    tiers = {
+        "friend": ["знакомые", "друзья", "близкие друзья", "ОЧЕНЬ близкие друзья"],
+        "romantic": ["пара", "крепкая пара", "неразлей вода"],
+        "married": ["молодожёны", "супруги", "крепкая семья", "легендарный союз"],
+    }
+    names = tiers.get(relation_type, ["связь"])
+    level = 0
+    threshold = 100
+    points = max(0, int(intimacy_level or 0))
+    while points >= threshold:
+        points -= threshold
+        level += 1
+        threshold += 50
+    if level < len(names):
+        return names[level]
+    return f"{names[-1]}+"
+
+
+async def _extract_target_user(message: types.Message, bot: Bot):
+    if message.reply_to_message and message.reply_to_message.from_user:
+        return message.reply_to_message.from_user
+    text = (message.text or "").strip()
+    for word in text.split():
+        if word.startswith("@") and len(word) > 1:
+            user_data = await db.get_user_by_username(word[1:])
+            if user_data:
+                try:
+                    member = await bot.get_chat_member(message.chat.id, user_data["user_id"])
+                    return member.user
+                except Exception:
+                    return None
+    return None
 
 
 def _build_request_keyboard(kind: str, from_user_id: int, to_user_id: int):
@@ -128,8 +164,86 @@ async def cmd_my_relations(message: types.Message, bot: Bot):
     lines = ["💞 Ваши отношения в этой группе:"]
     for rel in relations[:10]:
         member = await bot.get_chat_member(message.chat.id, rel["partner_id"])
+        tier = _intimacy_tier_title(rel["relation_type"], rel.get("intimacy_level", 0))
         lines.append(
             f"• {REL_LABELS.get(rel['relation_type'], rel['relation_type'])} с {member.user.full_name} "
-            f"(близость: {rel.get('intimacy_level', 0)})"
+            f"(близость: {rel.get('intimacy_level', 0)}, статус: {tier})"
         )
     await message.reply("\n".join(lines))
+
+
+@relations_router.message(Command("sex"))
+@relations_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower().startswith("потрахаться")))
+async def cmd_sex_offer(message: types.Message, bot: Bot):
+    if message.chat.type not in {ChatType.GROUP, ChatType.SUPERGROUP}:
+        return
+
+    from_user = message.from_user
+    target_user = await _extract_target_user(message, bot)
+    if not target_user:
+        await message.reply("Ответьте на сообщение партнёра или укажите @username: `потрахаться @user`")
+        return
+    if from_user.id == target_user.id or target_user.is_bot:
+        await message.reply("Нужен живой партнёр.")
+        return
+
+    relation = await db.get_group_relationship(message.chat.id, from_user.id, target_user.id)
+    if not relation:
+        await message.reply("❌ Эта команда доступна только для оформленных отношений.")
+        return
+
+    cooldown = 24 * 60 * 60
+    last_used = await db.get_relationship_action_last_used(message.chat.id, from_user.id, target_user.id, "sex_offer")
+    now = time.time()
+    if now - last_used < cooldown:
+        rem = int(cooldown - (now - last_used))
+        await message.reply(f"⏳ Перезарядка команды: {rem // 3600}ч {(rem % 3600) // 60}м.")
+        return
+
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(text="✅ Согласиться", callback_data=f"sex_accept:{from_user.id}:{target_user.id}"),
+        InlineKeyboardButton(text="❌ Отказать", callback_data=f"sex_decline:{from_user.id}:{target_user.id}"),
+    )
+    await message.reply(
+        f"{target_user.mention_html()}, {from_user.mention_html()} предлагает потрахаться 😏",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup(),
+    )
+
+
+@relations_router.callback_query(F.data.regexp(r"^sex_accept:(\d+):(\d+)$"))
+async def cb_sex_accept(callback: types.CallbackQuery, bot: Bot):
+    _, from_user_id, to_user_id = callback.data.split(":")
+    from_user_id, to_user_id = int(from_user_id), int(to_user_id)
+    if callback.from_user.id != to_user_id:
+        await callback.answer("Только приглашённый может ответить.", show_alert=True)
+        return
+
+    relation = await db.get_group_relationship(callback.message.chat.id, from_user_id, to_user_id)
+    if not relation:
+        await callback.message.edit_text("❌ Отношения не найдены.")
+        return
+
+    now = time.time()
+    await db.set_relationship_action_last_used(callback.message.chat.id, from_user_id, to_user_id, "sex_offer", now)
+    new_level = await db.increment_relationship_intimacy(callback.message.chat.id, from_user_id, to_user_id, delta=30)
+    tier = _intimacy_tier_title(relation["relation_type"], new_level or relation.get("intimacy_level", 0))
+    from_member = await bot.get_chat_member(callback.message.chat.id, from_user_id)
+    await callback.message.edit_text(
+        f"🔥 {from_member.user.mention_html()} и {callback.from_user.mention_html()} провели жаркую ночь.\n"
+        f"💞 Близость +30 → {new_level}\n"
+        f"🏷 Текущий статус: {tier}",
+        parse_mode="HTML",
+    )
+    await callback.answer("Успешно!")
+
+
+@relations_router.callback_query(F.data.regexp(r"^sex_decline:(\d+):(\d+)$"))
+async def cb_sex_decline(callback: types.CallbackQuery):
+    _, _, to_user_id = callback.data.split(":")
+    if callback.from_user.id != int(to_user_id):
+        await callback.answer("Только приглашённый может ответить.", show_alert=True)
+        return
+    await callback.message.edit_text("❌ Предложение отклонено.")
+    await callback.answer("Отклонено")

@@ -26,6 +26,7 @@ from core.group.stat.plum_shop_handlers import plum_shop_router
 from core.group.stat.quests_handlers import quests_router
 
 import logging
+from types import SimpleNamespace
 logger = logging.getLogger(__name__)
 
 formatter = string.Formatter()
@@ -51,6 +52,23 @@ class CustomBackgroundStates(StatesGroup):
     waiting_for_url = State()
 
 custom_bg_purchases = {}
+
+
+def _relation_status_title(relation_type: str, intimacy_level: int) -> str:
+    tiers = {
+        "friend": ["знакомые", "друзья", "близкие друзья", "ОЧЕНЬ близкие друзья"],
+        "romantic": ["пара", "крепкая пара", "неразлей вода"],
+        "married": ["молодожёны", "супруги", "крепкая семья", "легендарный союз"],
+    }
+    names = tiers.get(relation_type, ["связь"])
+    level = 0
+    threshold = 100
+    points = max(0, int(intimacy_level or 0))
+    while points >= threshold:
+        points -= threshold
+        level += 1
+        threshold += 50
+    return names[level] if level < len(names) else f"{names[-1]}+"
 
 # Добавим обработчик для покупки кастомного фона
 @stat_router.callback_query(F.data == "buy_bg:custom")
@@ -303,6 +321,7 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
 
     from database import get_user_rp_stats
     rp_stats = await get_user_rp_stats(message.from_user.id)
+    duel_stats = await db.get_duel_stats(message.from_user.id)
     if rp_stats:
         profile['hp'] = rp_stats.get('hp', 100)
 
@@ -317,7 +336,8 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
                 partner = await bot.get_chat_member(message.chat.id, top_rel["partner_id"])
                 relations_text = (
                     f"{rel_labels.get(top_rel['relation_type'], top_rel['relation_type'])} с {partner.user.full_name} "
-                    f"(близость: {top_rel.get('intimacy_level', 0)})"
+                    f"(близость: {top_rel.get('intimacy_level', 0)}, статус: "
+                    f"{_relation_status_title(top_rel['relation_type'], top_rel.get('intimacy_level', 0))})"
                 )
         except Exception as e:
             logger.warning("Failed to load relationship info for profile: %s", e)
@@ -332,6 +352,8 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         f"📈 **EXP:** `{profile.get('exp', 0)}`\n"
         f"💰 **Lumcoins:** `{profile.get('lumcoins', 0)}`\n"
         f"💎 **Plumcoins:** `{profile.get('plumcoins', 0)}`\n"
+        f"💪 **Сила:** `{duel_stats.get('strength', 0)}`\n"
+        f"🏃 **Ловкость:** `{duel_stats.get('agility', 0)}`\n"
         f"🔥 **Серия активности:** `{profile.get('flames', 0)}`\n"
         f"💬 **Сегодня сообщений:** `{profile.get('daily_messages', 0)}`\n"
         f"🧾 **Всего сообщений:** `{profile.get('total_messages', 0)}`\n"
@@ -415,6 +437,11 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
 
     await message.reply(f"✅ Вы успешно {task_name} и заработали {lumcoins_reward} Lumcoins!")
     logger.info(f"User {user_id} successfully worked, earned {lumcoins_reward} Lumcoins. Task: '{task_name}'.")
+    try:
+        from core.group.stat.quests_handlers import update_work_quests
+        await update_work_quests(user_id, 1, message.bot)
+    except Exception as quest_error:
+        logger.warning("Не удалось обновить квесты работы для %s: %s", user_id, quest_error)
 
 @stat_router.message(Command("shop"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"магазин", "магазин фонов"}))
@@ -639,8 +666,86 @@ async def record_group_activity(message: types.Message, profile_manager: Profile
         await profile_manager.record_message(message.from_user)
         await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
         await db.log_user_interaction(message.from_user.id, "group_message", "message")
+        try:
+            from core.group.stat.quests_handlers import update_message_quests
+            await update_message_quests(message.from_user.id, 1, message.bot)
+        except Exception as quest_error:
+            logger.warning("Не удалось обновить квесты сообщений для %s: %s", message.from_user.id, quest_error)
     except Exception as e:
         logger.error("Failed to record group activity for user %s: %s", message.from_user.id, e)
+
+
+async def _ensure_transfer_table() -> None:
+    async with aiosqlite.connect('profiles.db') as conn:
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_transfer_cooldowns (
+                user_id INTEGER PRIMARY KEY,
+                last_transfer_ts REAL NOT NULL DEFAULT 0
+            )
+        ''')
+        await conn.commit()
+
+
+async def get_last_transfer_time(user_id: int) -> float:
+    await _ensure_transfer_table()
+    async with aiosqlite.connect('profiles.db') as conn:
+        cursor = await conn.execute(
+            "SELECT last_transfer_ts FROM user_transfer_cooldowns WHERE user_id = ?",
+            (user_id,)
+        )
+        row = await cursor.fetchone()
+        return float(row[0]) if row else 0.0
+
+
+async def update_last_transfer_time(user_id: int, timestamp: float) -> None:
+    await _ensure_transfer_table()
+    async with aiosqlite.connect('profiles.db') as conn:
+        await conn.execute(
+            '''
+            INSERT INTO user_transfer_cooldowns (user_id, last_transfer_ts)
+            VALUES (?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET last_transfer_ts = excluded.last_transfer_ts
+            ''',
+            (user_id, timestamp)
+        )
+        await conn.commit()
+
+
+async def find_user_by_username(username: str):
+    normalized = (username or "").strip().lstrip("@").lower()
+    if not normalized:
+        return None
+
+    # Сначала ищем в profiles.db
+    async with aiosqlite.connect('profiles.db') as conn:
+        cursor = await conn.execute(
+            "SELECT user_id, username, first_name FROM users WHERE LOWER(username) = ? LIMIT 1",
+            (normalized,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return SimpleNamespace(
+                id=int(row[0]),
+                username=row[1],
+                first_name=row[2] or row[1] or "пользователь",
+                is_bot=False
+            )
+
+    # Фолбэк: основная БД
+    async with aiosqlite.connect(DB_PATH) as conn:
+        cursor = await conn.execute(
+            "SELECT user_id, username, first_name FROM users WHERE LOWER(username) = ? LIMIT 1",
+            (normalized,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return SimpleNamespace(
+                id=int(row[0]),
+                username=row[1],
+                first_name=row[2] or row[1] or "пользователь",
+                is_bot=False
+            )
+    return None
 
 @stat_router.message(Command("give"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.strip().lower().startswith(("дать", "передать"))))

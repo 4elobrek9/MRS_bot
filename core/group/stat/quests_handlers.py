@@ -771,14 +771,14 @@ async def update_rp_quests(user_id: int, action_type: str, unique_action: bool =
                 )
             
             # Уникальные RP-действия
-            if quest['type'] == 'unique_rp_actions' and action_type == 'unique_rp' and unique_action and not quest['completed']:
+            if quest['type'] == 'unique_rp_actions' and unique_action and not quest['completed']:
                 logger.info(f"Обновление unique_rp_actions: {quest['name']}")
                 await increment_quest_progress(
                     user_id, quest_type, quest['user_quest_id'], 1, bot
                 )
             
             # Общее количество уникальных RP-действий (еженедельные)
-            if quest['type'] == 'unique_rp_actions_total' and action_type == 'unique_rp' and unique_action and not quest['completed']:
+            if quest['type'] == 'unique_rp_actions_total' and unique_action and not quest['completed']:
                 logger.info(f"Обновление unique_rp_actions_total: {quest['name']}")
                 await increment_quest_progress(
                     user_id, quest_type, quest['user_quest_id'], 1, bot
@@ -821,13 +821,13 @@ async def update_rp_quests(user_id: int, action_type: str, unique_action: bool =
                 )
             
             # Уникальные RP-действия
-            if quest['type'] == 'unique_rp_actions' and action_type == 'unique_rp' and unique_action and not quest['completed']:
+            if quest['type'] == 'unique_rp_actions' and unique_action and not quest['completed']:
                 await increment_quest_progress(
                     user_id, quest_type, quest['user_quest_id'], 1, bot
                 )
             
             # Общее количество уникальных RP-действий (еженедельные)
-            if quest['type'] == 'unique_rp_actions_total' and action_type == 'unique_rp' and unique_action and not quest['completed']:
+            if quest['type'] == 'unique_rp_actions_total' and unique_action and not quest['completed']:
                 await increment_quest_progress(
                     user_id, quest_type, quest['user_quest_id'], 1, bot
                 )

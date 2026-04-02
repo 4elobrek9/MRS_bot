@@ -672,6 +672,18 @@ async def create_relationships_table() -> None:
         columns = {col[1] for col in await cursor.fetchall()}
         if "intimacy_level" not in columns:
             await db.execute("ALTER TABLE group_relationships ADD COLUMN intimacy_level INTEGER NOT NULL DEFAULT 0")
+        await db.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS relationship_action_cooldowns (
+                chat_id INTEGER NOT NULL,
+                user1_id INTEGER NOT NULL,
+                user2_id INTEGER NOT NULL,
+                action_key TEXT NOT NULL,
+                last_used_ts REAL NOT NULL DEFAULT 0,
+                PRIMARY KEY (chat_id, user1_id, user2_id, action_key)
+            )
+            '''
+        )
         await db.commit()
 
 
@@ -768,6 +780,51 @@ async def get_user_group_relationships(chat_id: int, user_id: int) -> List[Dict[
                 }
             )
         return result
+
+
+async def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
+    normalized = (username or "").strip().lstrip("@").lower()
+    if not normalized:
+        return None
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT user_id, username, first_name FROM users WHERE LOWER(username) = ? LIMIT 1",
+            (normalized,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {"user_id": int(row[0]), "username": row[1], "first_name": row[2]}
+
+
+async def get_relationship_action_last_used(chat_id: int, user_a: int, user_b: int, action_key: str) -> float:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            '''
+            SELECT last_used_ts
+            FROM relationship_action_cooldowns
+            WHERE chat_id = ? AND user1_id = ? AND user2_id = ? AND action_key = ?
+            ''',
+            (chat_id, user1, user2, action_key),
+        )
+        row = await cursor.fetchone()
+        return float(row[0]) if row else 0.0
+
+
+async def set_relationship_action_last_used(chat_id: int, user_a: int, user_b: int, action_key: str, ts: float) -> None:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            INSERT INTO relationship_action_cooldowns (chat_id, user1_id, user2_id, action_key, last_used_ts)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(chat_id, user1_id, user2_id, action_key) DO UPDATE SET
+                last_used_ts = excluded.last_used_ts
+            ''',
+            (chat_id, user1, user2, action_key, ts),
+        )
+        await db.commit()
 
 
 async def create_duel_stats_table() -> None:

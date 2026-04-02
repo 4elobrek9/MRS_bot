@@ -78,12 +78,13 @@ async def _parse_rp_message(message: types.Message, bot: Bot) -> Tuple[Optional[
                     # Извлекаем username из текста упоминания
                     mentioned_username = text[entity.offset : entity.offset + entity.length].lstrip('@')
                     try:
-                        # Пытаемся получить user_id через get_chat_member
-                        chat_member = await bot.get_chat_member(message.chat.id, mentioned_username)
-                        target_user = chat_member.user
+                        user_data = await db.get_user_by_username(mentioned_username)
+                        if user_data:
+                            chat_member = await bot.get_chat_member(message.chat.id, user_data["user_id"])
+                            target_user = chat_member.user
                         # Удаляем упоминание из оставшегося текста
-                        remaining_text = remaining_text.replace(f"@{mentioned_username}", "").strip()
-                        break
+                            remaining_text = remaining_text.replace(f"@{mentioned_username}", "").strip()
+                            break
                     except TelegramAPIError:
                         continue
                 elif entity.type == MessageEntityType.TEXT_MENTION:
@@ -102,10 +103,12 @@ async def _parse_rp_message(message: types.Message, bot: Bot) -> Tuple[Optional[
                 if word.startswith('@'):
                     username = word[1:]  # Убираем @
                     try:
-                        chat_member = await bot.get_chat_member(message.chat.id, username)
-                        target_user = chat_member.user
-                        remaining_text = remaining_text.replace(word, "").strip()
-                        break
+                        user_data = await db.get_user_by_username(username)
+                        if user_data:
+                            chat_member = await bot.get_chat_member(message.chat.id, user_data["user_id"])
+                            target_user = chat_member.user
+                            remaining_text = remaining_text.replace(word, "").strip()
+                            break
                     except TelegramAPIError:
                         continue
 
