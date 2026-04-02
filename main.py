@@ -8,7 +8,7 @@ from aiogram import Dispatcher, F, Router, Bot, types
 from aiogram.fsm.strategy import FSMStrategy
 from aiogram.enums import ChatType, ParseMode
 from aiogram.filters import Command
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramNetworkError
 from aiogram.types import BotCommand
 from aiogram.dispatcher.middlewares.base import BaseMiddleware
 
@@ -121,6 +121,17 @@ class GroupActivityMiddleware(BaseMiddleware):
                 await record_group_activity(event, profile_manager)
         return await handler(event, data)
 
+
+class TelegramRetryMiddleware(BaseMiddleware):
+    """Повторяет обработку события при кратковременных сетевых ошибках Telegram API."""
+    async def __call__(self, handler, event, data):
+        try:
+            return await handler(event, data)
+        except TelegramNetworkError as e:
+            logger.warning("TelegramNetworkError on update, retry once: %r", e)
+            await asyncio.sleep(0.7)
+            return await handler(event, data)
+
 # ВАЖНО: используем единый Dispatcher из core.main.ez_main,
 # чтобы все декораторы из core.main.dec_command регистрировались
 # в том же экземпляре, который запускается в polling.
@@ -212,6 +223,7 @@ async def main():
     dp["bot_instance"] = bot
     dp.message.middleware(GroupBotEnabledMiddleware())
     dp.message.middleware(GroupActivityMiddleware())
+    dp.message.middleware(TelegramRetryMiddleware())
 
     # Регистрация роутера настроек
     dp.include_router(settings_router)

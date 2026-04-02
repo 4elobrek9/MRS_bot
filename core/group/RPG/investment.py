@@ -3,6 +3,7 @@ from core.group.RPG.rpg_utils import ensure_db_initialized
 from .rpg_utils import investment_amounts, quick_purchase_cache
 
 from aiogram import Router, types, F, Bot
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 import logging
@@ -88,7 +89,8 @@ async def get_user_investment_history(user_id: int, limit: int = 20) -> List[dic
         logger.error(f"❌ Error getting investment history: {e}")
         return []
 
-@rpg_router.message(F.text.lower() == "инвестировать")
+@rpg_router.message(Command("invest"))
+@rpg_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"инвестировать", "инвестиции", "инвест"}))
 async def show_investment(message: types.Message, profile_manager):
     try:
         user_id = message.from_user.id
@@ -438,7 +440,8 @@ async def handle_invest_claim_all(callback: types.CallbackQuery, profile_manager
         logger.error(f"❌ Error in handle_invest_claim_all: {e}")
         await callback.answer("❌ Ошибка при получении инвестиций")
 
-@rpg_router.message(F.text.lower() == "мои инвестиции")
+@rpg_router.message(Command("myinvestments"))
+@rpg_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"мои инвестиции", "инвестиции мои"}))
 async def show_my_investments(message: types.Message, profile_manager):
     """Детальный просмотр инвестиций"""
     try:
