@@ -8,6 +8,7 @@ import json
 from datetime import datetime, timedelta
 import aiosqlite
 from aiogram import Router, types, F, Bot
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from aiogram.utils.markdown import hbold, hcode
@@ -523,7 +524,8 @@ def format_time_left(expires_at: str) -> str:
         return f"{diff.days}д {hours}ч"
     return f"{hours}ч {minutes}м"
 
-@quests_router.message(F.text.lower().in_(["задания", "квесты", "/quests"]))
+@quests_router.message(Command("quests"))
+@quests_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower().strip(".,!?:;") in {"задания", "квесты", "quests"}))
 async def cmd_show_quests(message: types.Message, profile_manager: ProfileManager):
     """Показывает текущие задания пользователя"""
     user_id = message.from_user.id

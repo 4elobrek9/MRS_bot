@@ -3,6 +3,7 @@ from core.group.RPG.rpg_utils import ensure_db_initialized
 from .rpg_utils import investment_amounts, quick_purchase_cache
 
 from aiogram import Router, types, F, Bot
+from aiogram.filters import Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 import logging
@@ -26,6 +27,7 @@ from core.group.RPG.investment import *
 from core.group.RPG.item import *
 from core.group.RPG.market import *
 from core.group.RPG.trade import *
+INVESTMENT_TERM_DAYS = 14
 
 async def add_investment(user_id: int, amount: int, term_days: int, interest_rate: float, risk: float = 0) -> bool:
     try:
@@ -66,13 +68,36 @@ async def get_user_active_investments(user_id: int) -> List[dict]:
         logger.error(f"❌ Error getting user investments: {e}")
         return []
 
-@rpg_router.message(F.text.lower() == "инвестировать")
+
+async def get_user_investment_history(user_id: int, limit: int = 20) -> List[dict]:
+    try:
+        await ensure_db_initialized()
+        async with aiosqlite.connect('profiles.db') as conn:
+            cursor = await conn.execute(
+                '''
+                SELECT * FROM user_investments
+                WHERE user_id = ? AND status IN ('completed', 'failed')
+                ORDER BY invested_at DESC
+                LIMIT ?
+                ''',
+                (user_id, limit),
+            )
+            rows = await cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            return [dict(zip(columns, row)) for row in rows]
+    except Exception as e:
+        logger.error(f"❌ Error getting investment history: {e}")
+        return []
+
+@rpg_router.message(Command("invest"))
+@rpg_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"инвестировать", "инвестиции", "инвест"}))
 async def show_investment(message: types.Message, profile_manager):
     try:
         user_id = message.from_user.id
         lumcoins = await get_user_lumcoins(profile_manager, user_id)
         
         active_investments = await get_user_active_investments(user_id)
+        history = await get_user_investment_history(user_id, limit=5)
         
         builder = InlineKeyboardBuilder()
         text = f"💼 **Инвестиции** | 💰 Баланс: {lumcoins} LUM\n\n"
@@ -122,12 +147,9 @@ async def show_investment(message: types.Message, profile_manager):
                 
         else:
             text += "💡 **Инвестируйте LUM под проценты!**\n\n"
-            text += "🔒 **Безопасные инвестиции:**\n"
-            text += "• 7 дней - 15% прибыли\n"
-            text += "• 30 дней - 50% прибыли\n\n"
-            text += "🎯 **Рискованные инвестиции:**\n" 
-            text += "• 3 дня - 30% прибыли (риск 20%)\n"
-            text += "• 14 дней - 80% прибыли (риск 40%)\n\n"
+            text += "📅 **Все инвестиции привязаны к сроку 14 дней.**\n"
+            text += "🔒 Безопасная: 14 дней / +35%\n"
+            text += "🎯 Рискованная: 14 дней / +70% (риск 35%)\n\n"
             
             builder.row(InlineKeyboardButton(
                 text="💰 Инвестировать", 
@@ -218,8 +240,7 @@ async def handle_invest_amount(callback: types.CallbackQuery, profile_manager):
         text += "🔒 **Безопасные инвестиции:**\n"
         
         safe_investments = [
-            ("🛡️ 7 дней, 15%", "invest_safe:7:0.15"),
-            ("🛡️ 30 дней, 50%", "invest_safe:30:0.5")
+            ("🛡️ 14 дней, 35%", f"invest_safe:{INVESTMENT_TERM_DAYS}:0.35"),
         ]
         
         for name, data in safe_investments:
@@ -237,8 +258,7 @@ async def handle_invest_amount(callback: types.CallbackQuery, profile_manager):
         text += "\n🎯 **Рискованные инвестиции:**\n"
         
         risky_investments = [
-            ("🎯 3 дня, 30%", "invest_risky:3:0.3:0.2"),
-            ("🎯 14 дней, 80%", "invest_risky:14:0.8:0.4")
+            ("🎯 14 дней, 70%", f"invest_risky:{INVESTMENT_TERM_DAYS}:0.7:0.35")
         ]
         
         for name, data in risky_investments:
@@ -366,6 +386,7 @@ async def handle_invest_claim_all(callback: types.CallbackQuery, profile_manager
     try:
         user_id = callback.from_user.id
         active_investments = await get_user_active_investments(user_id)
+        history = await get_user_investment_history(user_id, limit=5)
         
         total_profit = 0
         claimed_count = 0
@@ -419,7 +440,8 @@ async def handle_invest_claim_all(callback: types.CallbackQuery, profile_manager
         logger.error(f"❌ Error in handle_invest_claim_all: {e}")
         await callback.answer("❌ Ошибка при получении инвестиций")
 
-@rpg_router.message(F.text.lower() == "мои инвестиции")
+@rpg_router.message(Command("myinvestments"))
+@rpg_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"мои инвестиции", "инвестиции мои"}))
 async def show_my_investments(message: types.Message, profile_manager):
     """Детальный просмотр инвестиций"""
     try:
@@ -464,6 +486,12 @@ async def show_my_investments(message: types.Message, profile_manager):
                     text += f"⚠️ **Риск:** {investment['risk']*100}%\n"
                 
                 text += "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+
+            if history:
+                text += "\n📚 **История инвестиций (последние 5):**\n"
+                for inv in history:
+                    status_emoji = "✅" if inv.get("status") == "completed" else "❌"
+                    text += f"{status_emoji} {inv.get('amount', 0):,} LUM • {inv.get('term_days', INVESTMENT_TERM_DAYS)}д\n"
         
         builder.row(InlineKeyboardButton(
             text="💰 Инвестировать", 
@@ -604,4 +632,3 @@ async def handle_sell_item_info(callback: types.CallbackQuery, profile_manager):
     except Exception as e:
         logger.error(f"❌ Error in handle_sell_item_info: {e}")
         await callback.answer("❌ Ошибка при продаже предмета")
-
