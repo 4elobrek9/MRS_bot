@@ -304,6 +304,7 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
 
     from database import get_user_rp_stats
     rp_stats = await get_user_rp_stats(message.from_user.id)
+    duel_stats = await db.get_duel_stats(message.from_user.id)
     if rp_stats:
         profile['hp'] = rp_stats.get('hp', 100)
 
@@ -333,6 +334,8 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
         f"📈 **EXP:** `{profile.get('exp', 0)}`\n"
         f"💰 **Lumcoins:** `{profile.get('lumcoins', 0)}`\n"
         f"💎 **Plumcoins:** `{profile.get('plumcoins', 0)}`\n"
+        f"💪 **Сила:** `{duel_stats.get('strength', 0)}`\n"
+        f"🏃 **Ловкость:** `{duel_stats.get('agility', 0)}`\n"
         f"🔥 **Серия активности:** `{profile.get('flames', 0)}`\n"
         f"💬 **Сегодня сообщений:** `{profile.get('daily_messages', 0)}`\n"
         f"🧾 **Всего сообщений:** `{profile.get('total_messages', 0)}`\n"

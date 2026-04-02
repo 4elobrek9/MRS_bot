@@ -19,6 +19,17 @@ def _kb(buttons):
     return b.as_markup()
 
 
+def _game_round_markup(user_id: int):
+    choices = ["🟥🎲", "🟥🎲", "🟩🎲"]
+    random.shuffle(choices)
+    kb = InlineKeyboardBuilder()
+    for c in choices:
+        color = "green" if "🟩" in c else "red"
+        kb.add(InlineKeyboardButton(text=c, callback_data=f"game_pick:{user_id}:{color}"))
+    kb.adjust(3)
+    return kb.as_markup()
+
+
 @duel_router.message(Command("sharp_knife"))
 @duel_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() == "точить нож"))
 async def cmd_sharpen_knife(message: types.Message, profile_manager):
@@ -38,46 +49,18 @@ async def cmd_sharpen_knife(message: types.Message, profile_manager):
 @duel_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() == "играть"))
 async def cmd_play_game(message: types.Message):
     user_id = message.from_user.id
-    game_sessions[user_id] = {"stage": 1, "hits": 0, "last_hit": 0}
-    kb = _kb([InlineKeyboardButton(text="🟩🎲", callback_data=f"game_hit:{user_id}")])
-    await message.reply("🎮 Нажми зелёный кубик 5 раз подряд (не позже 0.5 сек между кликами).", reply_markup=kb)
-
-
-@duel_router.callback_query(F.data.regexp(r"^game_hit:(\d+)$"))
-async def cb_game_hit(callback: types.CallbackQuery):
-    user_id = int(callback.data.split(":")[1])
-    if callback.from_user.id != user_id:
-        await callback.answer("Это не ваша игра.", show_alert=True)
-        return
-    sess = game_sessions.get(user_id)
-    if not sess:
-        await callback.answer("Сессия игры не найдена.", show_alert=True)
-        return
-
-    now = time.time()
-    if sess["hits"] > 0 and now - sess["last_hit"] > 0.5:
-        del game_sessions[user_id]
-        await callback.message.edit_text("⌛ Слишком медленно. Попробуй ещё раз командой 'играть'.")
-        return
-
-    sess["hits"] += 1
-    sess["last_hit"] = now
-
-    if sess["hits"] < 5:
-        await callback.answer(f"Попадание {sess['hits']}/5")
-        return
-
-    # этап 2: 3 кубика, один зелёный
-    choices = ["🟥🎲", "🟥🎲", "🟩🎲"]
-    random.shuffle(choices)
-    kb = InlineKeyboardBuilder()
-    for idx, c in enumerate(choices):
-        color = "green" if "🟩" in c else "red"
-        kb.add(InlineKeyboardButton(text=c, callback_data=f"game_pick:{user_id}:{color}"))
-    kb.adjust(3)
-    sess["stage"] = 2
-    await callback.message.edit_text("🔥 Финал! Нажми ЗЕЛЕНЫЙ кубик.", reply_markup=kb.as_markup())
-    await callback.answer()
+    initial_limit = 2.0
+    game_sessions[user_id] = {
+        "streak": 0,
+        "time_limit": initial_limit,
+        "deadline": time.time() + initial_limit
+    }
+    await message.reply(
+        "🎮 Игра началась!\n"
+        "Нужно 5 раз подряд нажать зелёный кубик из 3 кубиков.\n"
+        "⏱ На 1-й раунд: 2.00 сек, затем лимит уменьшается на 0.20 сек каждый раунд.",
+        reply_markup=_game_round_markup(user_id)
+    )
 
 
 @duel_router.callback_query(F.data.regexp(r"^game_pick:(\d+):(green|red)$"))
@@ -88,15 +71,40 @@ async def cb_game_pick(callback: types.CallbackQuery):
         await callback.answer("Это не ваша игра.", show_alert=True)
         return
     sess = game_sessions.get(user_id)
-    if not sess or sess.get("stage") != 2:
+    if not sess:
         await callback.answer("Сессия недействительна.", show_alert=True)
         return
-    del game_sessions[user_id]
-    if color != "green":
-        await callback.message.edit_text("❌ Это был не зелёный кубик.")
+
+    now = time.time()
+    if now > sess["deadline"]:
+        del game_sessions[user_id]
+        await callback.message.edit_text("⌛ Время вышло. Попробуй снова командой 'играть'.")
+        await callback.answer()
         return
-    stats = await db.update_duel_stats(user_id, agility_delta=10)
-    await callback.message.edit_text(f"✅ Победа! +10 ловкости. Ловкость: {stats['agility']}")
+
+    if color != "green":
+        del game_sessions[user_id]
+        await callback.message.edit_text("❌ Это был не зелёный кубик.")
+        await callback.answer()
+        return
+
+    sess["streak"] += 1
+    if sess["streak"] >= 5:
+        del game_sessions[user_id]
+        stats = await db.update_duel_stats(user_id, agility_delta=10)
+        await callback.message.edit_text(f"✅ Победа! +10 ловкости. Ловкость: {stats['agility']}")
+        await callback.answer()
+        return
+
+    next_limit = max(0.2, round(2.0 - 0.2 * sess["streak"], 2))
+    sess["time_limit"] = next_limit
+    sess["deadline"] = time.time() + next_limit
+    await callback.message.edit_text(
+        f"✅ Попадание {sess['streak']}/5\n"
+        f"⏱ Следующий раунд: {next_limit:.2f} сек",
+        reply_markup=_game_round_markup(user_id)
+    )
+    await callback.answer()
 
 
 @duel_router.message(Command("duel"))
