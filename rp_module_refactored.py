@@ -51,6 +51,7 @@ from core.group.RP.more import (
 
 # Logger setup
 logger = logging.getLogger(__name__)
+INTIMACY_ACTIONS = {"обнять", "поцеловать", "погладить", "лизнуть", "укусить", "трахнуть"}
 
 rp_router = Router(name="rp_module")
 rp_router.message.filter(F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}))
@@ -125,6 +126,11 @@ async def handle_rp_action(
 
         await message.answer(action_message, parse_mode=ParseMode.HTML)
         logger.info(f"RP Action '{action_name}' performed by {sender_id} on {target_id}. Sender HP: {new_sender_hp}, Target HP: {new_target_hp}.")
+
+        if action_name.lower() in INTIMACY_ACTIONS:
+            new_level = await db.increment_relationship_intimacy(message.chat.id, sender_id, target_id, delta=1)
+            if new_level is not None:
+                await message.answer(f"💞 Уровень близости между вами вырос: {new_level}")
 
         # ✅ ДОБАВЛЕНО: Обновляем задания для RP-действий
         try:
