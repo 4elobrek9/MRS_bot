@@ -20,6 +20,7 @@ from core.main.dec_command import *
 from core.main.watermark import apply_watermark
 from mistral_group_chat import MistralGroupHandler
 from core.group.group_settings_handler import settings_router
+from core.group.relations import relations_router
 
 # --- Импорты модулей из CORE ---
 from core.group.stat.manager import ProfileManager
@@ -179,6 +180,7 @@ async def main():
     await db.initialize_database()
     await db.create_promo_table()
     await db.create_group_settings_table()
+    await db.create_relationships_table()
 
     logger.info("Проверка миграции...")
     await migrate_inventory_table()
@@ -213,6 +215,7 @@ async def main():
 
     # Регистрация роутера настроек
     dp.include_router(settings_router)
+    dp.include_router(relations_router)
 
     # Регистрация всех специализированных роутеров для команд
     setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
@@ -281,6 +284,11 @@ async def main():
         BotCommand(command="myhp", description="❤️ Проверить здоровье (также 'мое здоровье')"),
         BotCommand(command="heal", description="💊 Использовать аптечку (также 'лечить')"),
         BotCommand(command="rpactions", description="⚔️ Список доступных RP действий (также 'рп действия')"),
+        BotCommand(command="friend", description="🤝 Предложить дружбу (ответом на сообщение)"),
+        BotCommand(command="love", description="💘 Предложить романтические отношения (ответом)"),
+        BotCommand(command="marry", description="💍 Предложить брак (ответом)"),
+        BotCommand(command="breakup", description="💔 Завершить отношения (ответом)"),
+        BotCommand(command="myrelations", description="💞 Показать свои отношения в группе"),
 
         # Разное
         BotCommand(command="joke", description="🤣 Случайный анекдот (также 'анекдот')"),

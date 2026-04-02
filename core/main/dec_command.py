@@ -34,12 +34,16 @@ LOCAL_STT_COMPUTE_TYPE = os.getenv("LOCAL_STT_COMPUTE_TYPE", "int8")
 _LOCAL_STT_MODEL = None
 
 
+def _local_stt_installed() -> bool:
+    return importlib.util.find_spec("faster_whisper") is not None
+
+
 def _get_local_stt_model():
     global _LOCAL_STT_MODEL
     if _LOCAL_STT_MODEL is not None:
         return _LOCAL_STT_MODEL
 
-    if importlib.util.find_spec("faster_whisper") is None:
+    if not _local_stt_installed():
         logger.error("Local STT disabled: package 'faster_whisper' is not installed.")
         return None
 
@@ -244,7 +248,10 @@ async def voice_handler_msg(message: Message, bot: Bot):
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     text = await _transcribe_telegram_media(message, bot, message.voice.file_id, f"voice_{message.voice.file_unique_id}.ogg")
     if not text:
-        await message.reply("❌ Не удалось расшифровать голосовое.")
+        if not _local_stt_installed():
+            await message.reply("❌ Локальная STT не установлена. Установите `faster-whisper` (и ffmpeg) на вашем ПК.")
+        else:
+            await message.reply("❌ Не удалось расшифровать голосовое.")
         return
     await message.reply(f"📝 Расшифровка голосового:\n{text}")
 
@@ -258,7 +265,10 @@ async def video_note_handler_msg(message: Message, bot: Bot):
     await db.ensure_user_exists(user.id, user.username, user.first_name)
     text = await _transcribe_telegram_media(message, bot, message.video_note.file_id, f"video_note_{message.video_note.file_unique_id}.mp4")
     if not text:
-        await message.reply("❌ Не удалось расшифровать кружок.")
+        if not _local_stt_installed():
+            await message.reply("❌ Локальная STT не установлена. Установите `faster-whisper` (и ffmpeg) на вашем ПК.")
+        else:
+            await message.reply("❌ Не удалось расшифровать кружок.")
         return
     await message.reply(f"📝 Расшифровка кружка:\n{text}")
 
