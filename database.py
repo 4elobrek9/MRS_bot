@@ -646,3 +646,95 @@ async def set_group_setting(chat_id: int, field: str, value: Any) -> None:
             (value, chat_id),
         )
         await db.commit()
+
+
+async def create_relationships_table() -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS group_relationships (
+                chat_id INTEGER NOT NULL,
+                user1_id INTEGER NOT NULL,
+                user2_id INTEGER NOT NULL,
+                relation_type TEXT NOT NULL CHECK (relation_type IN ('friend', 'romantic', 'married')),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (chat_id, user1_id, user2_id)
+            )
+            '''
+        )
+        await db.commit()
+
+
+def _normalize_pair(user_a: int, user_b: int) -> Tuple[int, int]:
+    return (user_a, user_b) if user_a < user_b else (user_b, user_a)
+
+
+async def set_group_relationship(chat_id: int, user_a: int, user_b: int, relation_type: str) -> None:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            INSERT INTO group_relationships (chat_id, user1_id, user2_id, relation_type)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(chat_id, user1_id, user2_id) DO UPDATE SET
+                relation_type = excluded.relation_type,
+                created_at = CURRENT_TIMESTAMP
+            ''',
+            (chat_id, user1, user2, relation_type),
+        )
+        await db.commit()
+
+
+async def get_group_relationship(chat_id: int, user_a: int, user_b: int) -> Optional[Dict[str, Any]]:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            '''
+            SELECT relation_type, created_at
+            FROM group_relationships
+            WHERE chat_id = ? AND user1_id = ? AND user2_id = ?
+            ''',
+            (chat_id, user1, user2),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {"relation_type": row[0], "created_at": row[1]}
+
+
+async def remove_group_relationship(chat_id: int, user_a: int, user_b: int) -> None:
+    user1, user2 = _normalize_pair(user_a, user_b)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            DELETE FROM group_relationships
+            WHERE chat_id = ? AND user1_id = ? AND user2_id = ?
+            ''',
+            (chat_id, user1, user2),
+        )
+        await db.commit()
+
+
+async def get_user_group_relationships(chat_id: int, user_id: int) -> List[Dict[str, Any]]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            '''
+            SELECT user1_id, user2_id, relation_type, created_at
+            FROM group_relationships
+            WHERE chat_id = ? AND (user1_id = ? OR user2_id = ?)
+            ORDER BY created_at DESC
+            ''',
+            (chat_id, user_id, user_id),
+        )
+        rows = await cursor.fetchall()
+        result: List[Dict[str, Any]] = []
+        for user1, user2, relation_type, created_at in rows:
+            partner_id = user2 if user1 == user_id else user1
+            result.append(
+                {
+                    "partner_id": partner_id,
+                    "relation_type": relation_type,
+                    "created_at": created_at,
+                }
+            )
+        return result

@@ -1,6 +1,9 @@
 import random
 import os
 import aiohttp
+import asyncio
+import importlib
+import tempfile
 from contextlib import suppress
 from typing import Optional
 
@@ -25,6 +28,78 @@ from aiogram import Bot
 
 MAX_RATING_OPPORTUNITIES = 5
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+LOCAL_STT_MODEL_NAME = os.getenv("LOCAL_STT_MODEL", "small")
+LOCAL_STT_DEVICE = os.getenv("LOCAL_STT_DEVICE", "auto")
+LOCAL_STT_COMPUTE_TYPE = os.getenv("LOCAL_STT_COMPUTE_TYPE", "int8")
+_LOCAL_STT_MODEL = None
+
+
+def _local_stt_installed() -> bool:
+    return importlib.util.find_spec("faster_whisper") is not None
+
+
+def _get_local_stt_model():
+    global _LOCAL_STT_MODEL
+    if _LOCAL_STT_MODEL is not None:
+        return _LOCAL_STT_MODEL
+
+    if not _local_stt_installed():
+        logger.error("Local STT disabled: package 'faster_whisper' is not installed.")
+        return None
+
+    faster_whisper = importlib.import_module("faster_whisper")
+    _LOCAL_STT_MODEL = faster_whisper.WhisperModel(
+        LOCAL_STT_MODEL_NAME,
+        device=LOCAL_STT_DEVICE,
+        compute_type=LOCAL_STT_COMPUTE_TYPE,
+    )
+    logger.info("Local STT model loaded: %s (%s/%s)", LOCAL_STT_MODEL_NAME, LOCAL_STT_DEVICE, LOCAL_STT_COMPUTE_TYPE)
+    return _LOCAL_STT_MODEL
+
+
+def _transcribe_file_sync(file_path: str) -> Optional[str]:
+    model = _get_local_stt_model()
+    if model is None:
+        return None
+
+    segments, _ = model.transcribe(
+        file_path,
+        beam_size=1,
+        vad_filter=True,
+        condition_on_previous_text=False,
+        without_timestamps=True,
+    )
+    text = " ".join((segment.text or "").strip() for segment in segments).strip()
+    return text or None
+
+
+async def _transcribe_telegram_media(message: Message, bot: Bot, file_id: str, filename: str) -> Optional[str]:
+    """Скачивает медиа из Telegram и расшифровывает локально (без внешних API)."""
+    try:
+        tg_file = await bot.get_file(file_id)
+        file_buffer = await bot.download(tg_file)
+        if file_buffer is None:
+            return None
+        file_bytes = file_buffer.read()
+        if not file_bytes:
+            return None
+
+        suffix = ".ogg"
+        if "." in filename:
+            suffix = "." + filename.rsplit(".", 1)[-1]
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_audio:
+            temp_audio.write(file_bytes)
+            temp_path = temp_audio.name
+
+        try:
+            return await asyncio.to_thread(_transcribe_file_sync, temp_path)
+        finally:
+            with suppress(Exception):
+                os.remove(temp_path)
+    except Exception as e:
+        logger.error("Failed to transcribe media: %s", e, exc_info=True)
+        return None
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message, profile_manager: ProfileManager):
@@ -165,12 +240,37 @@ async def photo_handler(message: Message):
     await message.answer(f"📸 Фото получил! Комментарий: '{caption[:100]}...'. Пока не умею анализировать изображения, но скоро научусь!")
 
 @dp.message(F.voice)
-async def voice_handler_msg(message: Message):
-    """Обработчик для входящих голосовых сообщений."""
+async def voice_handler_msg(message: Message, bot: Bot):
+    """Расшифровка голосовых в текст."""
     user = message.from_user
-    if not user: return
+    if not user or not message.voice:
+        return
     await db.ensure_user_exists(user.id, user.username, user.first_name)
-    await message.answer("🎤 Голосовые пока не обрабатываю, но очень хочу научиться! Отправь пока текстом, пожалуйста.")
+    text = await _transcribe_telegram_media(message, bot, message.voice.file_id, f"voice_{message.voice.file_unique_id}.ogg")
+    if not text:
+        if not _local_stt_installed():
+            await message.reply("❌ Локальная STT не установлена. Установите `faster-whisper` (и ffmpeg) на вашем ПК.")
+        else:
+            await message.reply("❌ Не удалось расшифровать голосовое.")
+        return
+    await message.reply(f"📝 Расшифровка голосового:\n{text}")
+
+
+@dp.message(F.video_note)
+async def video_note_handler_msg(message: Message, bot: Bot):
+    """Расшифровка кружков в текст."""
+    user = message.from_user
+    if not user or not message.video_note:
+        return
+    await db.ensure_user_exists(user.id, user.username, user.first_name)
+    text = await _transcribe_telegram_media(message, bot, message.video_note.file_id, f"video_note_{message.video_note.file_unique_id}.mp4")
+    if not text:
+        if not _local_stt_installed():
+            await message.reply("❌ Локальная STT не установлена. Установите `faster-whisper` (и ffmpeg) на вашем ПК.")
+        else:
+            await message.reply("❌ Не удалось расшифровать кружок.")
+        return
+    await message.reply(f"📝 Расшифровка кружка:\n{text}")
 
 @dp.message(F.chat.type == ChatType.PRIVATE, F.text, ~F.text.startswith('/'))
 async def handle_text_message(message: Message, bot_instance: Bot, profile_manager: ProfileManager, sticker_manager: StickerManager):
