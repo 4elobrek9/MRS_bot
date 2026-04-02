@@ -768,3 +768,56 @@ async def get_user_group_relationships(chat_id: int, user_id: int) -> List[Dict[
                 }
             )
         return result
+
+
+async def create_duel_stats_table() -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS duel_stats (
+                user_id INTEGER PRIMARY KEY,
+                strength INTEGER NOT NULL DEFAULT 0,
+                agility INTEGER NOT NULL DEFAULT 0,
+                stamina INTEGER NOT NULL DEFAULT 0
+            )
+            '''
+        )
+        await db.commit()
+
+
+async def get_duel_stats(user_id: int) -> Dict[str, int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO duel_stats (user_id) VALUES (?)",
+            (user_id,),
+        )
+        cursor = await db.execute(
+            "SELECT strength, agility, stamina FROM duel_stats WHERE user_id = ?",
+            (user_id,),
+        )
+        row = await cursor.fetchone()
+        return {
+            "strength": int(row[0] or 0),
+            "agility": int(row[1] or 0),
+            "stamina": int(row[2] or 0),
+        }
+
+
+async def update_duel_stats(user_id: int, strength_delta: int = 0, agility_delta: int = 0, stamina_delta: int = 0) -> Dict[str, int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO duel_stats (user_id) VALUES (?)",
+            (user_id,),
+        )
+        await db.execute(
+            '''
+            UPDATE duel_stats
+            SET strength = MAX(0, strength + ?),
+                agility = MAX(0, agility + ?),
+                stamina = MAX(0, stamina + ?)
+            WHERE user_id = ?
+            ''',
+            (strength_delta, agility_delta, stamina_delta, user_id),
+        )
+        await db.commit()
+    return await get_duel_stats(user_id)

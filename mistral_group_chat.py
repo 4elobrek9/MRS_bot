@@ -13,6 +13,7 @@ from aiogram.enums import ParseMode, ChatType
 from aiogram.exceptions import TelegramAPIError
 from aiogram.dispatcher.event.bases import UNHANDLED
 from aiogram.types import ReactionTypeEmoji
+from aiogram.enums import ReactionTypeType
 from core.main.watermark import apply_watermark
 import database as db # ❗ NEW: Добавьте этот импорт
 
@@ -308,7 +309,7 @@ class MistralGroupHandler:
                             await self.bot.set_message_reaction(
                                 chat_id=chat_id,
                                 message_id=message.message_id,
-                                reaction=[ReactionTypeEmoji(emoji=reaction)],
+                                reaction=[ReactionTypeEmoji(type=ReactionTypeType.EMOJI, emoji=reaction)],
                                 is_big=False,
                             )
                         except Exception as react_err:

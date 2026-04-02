@@ -21,6 +21,7 @@ from core.main.watermark import apply_watermark
 from mistral_group_chat import MistralGroupHandler
 from core.group.group_settings_handler import settings_router
 from core.group.relations import relations_router
+from core.group.duels import duel_router
 
 # --- Импорты модулей из CORE ---
 from core.group.stat.manager import ProfileManager
@@ -192,6 +193,7 @@ async def main():
     await db.create_promo_table()
     await db.create_group_settings_table()
     await db.create_relationships_table()
+    await db.create_duel_stats_table()
 
     logger.info("Проверка миграции...")
     await migrate_inventory_table()
@@ -228,6 +230,7 @@ async def main():
     # Регистрация роутера настроек
     dp.include_router(settings_router)
     dp.include_router(relations_router)
+    dp.include_router(duel_router)
 
     # Регистрация всех специализированных роутеров для команд
     setup_stat_handlers(dp, profile_manager, db, sticker_manager_instance, jokes_manager, bot)
@@ -302,6 +305,9 @@ async def main():
         BotCommand(command="breakup", description="💔 Завершить отношения (ответом)"),
         BotCommand(command="myrelations", description="💞 Показать свои отношения в группе"),
         BotCommand(command="relations", description="💞 Статус отношений/близости (алиас)"),
+        BotCommand(command="duel", description="⚔️ Вызвать на дуэль (ответом)"),
+        BotCommand(command="play", description="🎮 Мини-игра на ловкость"),
+        BotCommand(command="sharp_knife", description="🔪 Точить нож (+сила)"),
 
         # Разное
         BotCommand(command="joke", description="🤣 Случайный анекдот (также 'анекдот')"),

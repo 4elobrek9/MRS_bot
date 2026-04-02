@@ -783,7 +783,7 @@ async def give_lumcoins(message: types.Message, profile_manager: ProfileManager)
         await message.reply("❌ Произошла ошибка при переводе. Попробуйте позже.")
 
 @stat_router.message(Command("transfer"))
-@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"перевод", "трансфер"}))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.strip().lower().strip(".,!?:;") in {"перевод", "трансфер", "transfer"}))
 async def check_transfer_status(message: types.Message):
     """Показывает статус перевода и время до следующего возможного"""
     user_id = message.from_user.id
