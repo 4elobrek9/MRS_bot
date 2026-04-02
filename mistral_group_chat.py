@@ -50,6 +50,7 @@ class MistralGroupHandler:
         self.chat_message_counter: Dict[int, int] = {}
         # Счётчик ответов на сообщения бота в чате
         self.reply_message_counter: Dict[int, int] = {}
+        self.last_reply_time: Dict[int, float] = {}
         # Ширина окна активности и лимит одновременных участников
         self.activity_window_seconds = 120
         self.max_active_participants = 4
@@ -256,16 +257,16 @@ class MistralGroupHandler:
         )
         is_mention = bool(self.bot_username and f"@{self.bot_username.lower()}" in text.lower())
 
-        # AI отвечает только когда ему отвечают (reply/mention).
+        # AI отвечает когда ему отвечают (reply/mention), с небольшим антиспам-интервалом.
         if is_reply_to_bot or is_mention:
-            self.reply_message_counter[chat_id] = self.reply_message_counter.get(chat_id, 0) + 1
-            # На каждое 5-е ответное сообщение даем короткий "поддерживающий" отклик.
-            if self.reply_message_counter[chat_id] % 5 == 0 and self._is_working_hours():
+            now_reply = datetime.now().timestamp()
+            last_reply = self.last_reply_time.get(chat_id, 0)
+            if self._is_working_hours() and (now_reply - last_reply) >= 12:
                 should_respond = True
                 prompt_instruction = (
-                    "Это пятое сообщение-ответ тебе. Ответь коротко, дружелюбно, можно поддакнуть "
-                    "и задать лёгкий встречный вопрос, чтобы удержать диалог."
+                    "Пользователь ответил тебе. Ответь коротко, дружелюбно и по теме."
                 )
+                self.last_reply_time[chat_id] = now_reply
 
         # 4. Генерация и отправка
         if should_respond:

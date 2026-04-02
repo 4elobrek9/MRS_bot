@@ -643,7 +643,7 @@ async def record_group_activity(message: types.Message, profile_manager: Profile
         logger.error("Failed to record group activity for user %s: %s", message.from_user.id, e)
 
 @stat_router.message(Command("give"))
-@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"дать", "передать"}))
+@stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.strip().lower().startswith(("дать", "передать"))))
 async def give_lumcoins(message: types.Message, profile_manager: ProfileManager):
     """Передача Lumcoins другому пользователю с ограничениями"""
     user_id = message.from_user.id
