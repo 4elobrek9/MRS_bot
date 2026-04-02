@@ -54,6 +54,8 @@ class MistralGroupHandler:
         # Счётчик ответов на сообщения бота в чате
         self.reply_message_counter: Dict[int, int] = {}
         self.last_reply_time: Dict[int, float] = {}
+        # Все известные чаты, где бот видел сообщения
+        self.known_chats: Set[int] = set()
         # Ширина окна активности и лимит одновременных участников
         self.activity_window_seconds = 120
         self.max_active_participants = 4
@@ -191,6 +193,9 @@ class MistralGroupHandler:
         text = message.text or message.caption or ""
         username = message.from_user.first_name
 
+        # Регистрируем чат сразу, чтобы бот отслеживал все группы, где присутствует.
+        self.known_chats.add(chat_id)
+
         # Проверяем, что это групповой чат и не бот
         if message.chat.type not in [ChatType.GROUP, ChatType.SUPERGROUP] or message.from_user.is_bot:
             return UNHANDLED
@@ -288,19 +293,8 @@ class MistralGroupHandler:
             if response:
                 final_response = apply_watermark(response)
                 try:
+                    # Всегда отвечаем реплаем на сообщение пользователя.
                     reply_target_message_id = message.message_id
-                    if message.reply_to_message is not None:
-                        # Если пользователь ответил на сообщение бота, которое само было reply —
-                        # отвечаем на самое исходное сообщение пользователя, а не на сообщение бота.
-                        nested_reply = message.reply_to_message.reply_to_message
-                        if (
-                            message.reply_to_message.from_user
-                            and message.reply_to_message.from_user.id == self.bot.id
-                            and nested_reply is not None
-                        ):
-                            reply_target_message_id = nested_reply.message_id
-                        else:
-                            reply_target_message_id = message.reply_to_message.message_id
                     sent = await self.bot.send_message(
                         chat_id,
                         final_response,
@@ -309,14 +303,16 @@ class MistralGroupHandler:
                     )
                     # Реакции с шансом 20%
                     if random.random() < 0.2:
-                        with suppress(Exception):
-                            reaction = random.choice(["🔥", "❤️", "👍", "⚡", "💯"])
+                        reaction = random.choice(["🔥", "❤️", "👍", "⚡", "💯"])
+                        try:
                             await self.bot.set_message_reaction(
                                 chat_id=chat_id,
-                                message_id=reply_target_message_id,
+                                message_id=message.message_id,
                                 reaction=[ReactionTypeEmoji(emoji=reaction)],
                                 is_big=False,
                             )
+                        except Exception as react_err:
+                            logger.debug("Reaction could not be set in chat %s: %r", chat_id, react_err)
                     # Стикер с шансом 40%
                     if self.sticker_manager is not None and random.random() < 0.4:
                         with suppress(Exception):
@@ -337,8 +333,8 @@ class MistralGroupHandler:
             try:
                 if self._is_working_hours():
                     now = datetime.now()
-                    # Проходим по всем известным чатам
-                    for chat_id in list(self.chat_history.keys()):
+                    # Проходим по всем известным чатам (а не только с уже накопленной историей)
+                    for chat_id in list(self.known_chats):
 
                         # ❗ NEW: Проверяем статус LLM в группе
                         if not await db.get_ai_status(chat_id):
