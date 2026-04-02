@@ -10,6 +10,7 @@ import database as db
 duel_router = Router(name="duel_router")
 duel_sessions = {}
 game_sessions = {}
+duel_cooldowns = {}
 
 
 def _kb(buttons):
@@ -111,6 +112,14 @@ async def cmd_duel(message: types.Message):
     if attacker.id == defender.id or defender.is_bot:
         await message.reply("Нужен живой соперник.")
         return
+    now = time.time()
+    if duel_cooldowns.get(attacker.id, 0) > now:
+        remain = int(duel_cooldowns[attacker.id] - now)
+        await message.reply(f"😵 Вы в нокауте после дуэли. Подождите {remain // 60}м {remain % 60}с.")
+        return
+    if duel_cooldowns.get(defender.id, 0) > now:
+        await message.reply("😵 Соперник сейчас в нокауте 10 минут и не может принять дуэль.")
+        return
     duel_sessions[message.chat.id] = {"a": attacker.id, "d": defender.id}
     kb = _kb([InlineKeyboardButton(text="⚔️ Принять дуэль", callback_data=f"duel_accept:{attacker.id}:{defender.id}")])
     await message.reply(f"{defender.full_name}, вам брошен вызов на дуэль!", reply_markup=kb)
@@ -137,6 +146,11 @@ async def cb_duel_hit(callback: types.CallbackQuery):
         await callback.answer("Вы не участник дуэли.", show_alert=True)
         return
 
+    now = time.time()
+    if duel_cooldowns.get(callback.from_user.id, 0) > now:
+        await callback.answer("Вы в нокауте и не можете драться.", show_alert=True)
+        return
+
     attacker = callback.from_user.id
     target = d_id if attacker == a_id else a_id
     a_stats = await db.get_duel_stats(attacker)
@@ -147,7 +161,13 @@ async def cb_duel_hit(callback: types.CallbackQuery):
     hit_chance = 70 - max(0, (t_stats["agility"] - a_stats["agility"]) // 10)
     hit_roll = random.randint(1, 100)
     if hit_roll > hit_chance:
-        await callback.answer("Промах!", show_alert=True)
+        duel_cooldowns[attacker] = time.time() + 600
+        duel_sessions.pop(callback.message.chat.id, None)
+        await callback.message.edit_text(
+            f"💨 Промах! Дуэль окончена.\n"
+            f"Шанс попадания: {hit_chance}% | Бросок: {hit_roll}\n"
+            f"Атакующий в нокауте на 10 минут."
+        )
         return
 
     damage = 50 + ((a_stats["strength"] - t_stats["strength"]) // 10)
@@ -155,15 +175,35 @@ async def cb_duel_hit(callback: types.CallbackQuery):
     new_hp = max(0, target_hp - damage)
     await db.update_user_rp_stats(target, hp=new_hp)
 
-    if new_hp <= 0:
-        await db.update_user_rp_stats(target, hp=1, recovery_end_ts=time.time() + 600)
-        await callback.message.edit_text(
-            f"🏆 Дуэль окончена!\nИгрок {attacker} победил.\n"
-            f"Шанс попадания: {hit_chance}% | Урон: {damage}\n"
-            f"Противник в нокауте на 10 минут."
-        )
-    else:
-        await callback.message.edit_text(
-            f"⚔️ Удар нанесён!\nШанс попадания: {hit_chance}% | Урон: {damage}\n"
-            f"HP противника: {new_hp}"
-        )
+    duel_cooldowns[target] = time.time() + 600
+    duel_sessions.pop(callback.message.chat.id, None)
+    await db.update_user_rp_stats(target, hp=max(1, new_hp), recovery_end_ts=time.time() + 600)
+    await callback.message.edit_text(
+        f"🏆 Дуэль окончена!\nИгрок {attacker} победил.\n"
+        f"Шанс попадания: {hit_chance}% | Урон: {damage}\n"
+        f"HP противника после удара: {new_hp}\n"
+        f"Проигравший в нокауте на 10 минут."
+    )
+
+
+@duel_router.message(Command("duels"))
+@duel_router.message(F.text.func(lambda t: isinstance(t, str) and t.strip().lower() in {"дуэли", "дуэли команды"}))
+async def cmd_duels_info(message: types.Message):
+    user_id = message.from_user.id
+    stats = await db.get_duel_stats(user_id)
+    await message.reply(
+        "⚔️ Команды дуэлей:\n"
+        "• дуэль / /duel — вызов (ответом на сообщение)\n"
+        "• дуэли / /duels — показать это меню\n"
+        "• точить нож / /sharp_knife — +5 силы за 500 LUM\n"
+        "• играть / /play — мини-игра, +10 ловкости за победу\n\n"
+        "📌 Алгоритм:\n"
+        "• Нажал УДАР первым — ты атакующий\n"
+        "• База попадания: 70%\n"
+        "• Если у цели ловкость выше, шанс падает на (разница ловкости / 10)\n"
+        "  Пример: разница 10 => 69%\n"
+        "• База урона: 50 HP из RP-системы\n"
+        "• За каждые 10 силы разницы урон меняется на 1\n"
+        "• Проигравший получает нокаут 10 минут\n\n"
+        f"Ваши статы: 💪 {stats['strength']} | 🏃 {stats['agility']} | 🛡 {stats['stamina']}"
+    )

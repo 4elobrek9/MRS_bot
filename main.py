@@ -306,6 +306,7 @@ async def main():
         BotCommand(command="myrelations", description="💞 Показать свои отношения в группе"),
         BotCommand(command="relations", description="💞 Статус отношений/близости (алиас)"),
         BotCommand(command="duel", description="⚔️ Вызвать на дуэль (ответом)"),
+        BotCommand(command="duels", description="📘 Команды и механика дуэлей"),
         BotCommand(command="play", description="🎮 Мини-игра на ловкость"),
         BotCommand(command="sharp_knife", description="🔪 Точить нож (+сила)"),
 
