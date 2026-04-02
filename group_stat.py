@@ -53,6 +53,23 @@ class CustomBackgroundStates(StatesGroup):
 
 custom_bg_purchases = {}
 
+
+def _relation_status_title(relation_type: str, intimacy_level: int) -> str:
+    tiers = {
+        "friend": ["знакомые", "друзья", "близкие друзья", "ОЧЕНЬ близкие друзья"],
+        "romantic": ["пара", "крепкая пара", "неразлей вода"],
+        "married": ["молодожёны", "супруги", "крепкая семья", "легендарный союз"],
+    }
+    names = tiers.get(relation_type, ["связь"])
+    level = 0
+    threshold = 100
+    points = max(0, int(intimacy_level or 0))
+    while points >= threshold:
+        points -= threshold
+        level += 1
+        threshold += 50
+    return names[level] if level < len(names) else f"{names[-1]}+"
+
 # Добавим обработчик для покупки кастомного фона
 @stat_router.callback_query(F.data == "buy_bg:custom")
 async def process_buy_custom_background(callback: types.CallbackQuery, profile_manager: ProfileManager, state: FSMContext):
@@ -319,7 +336,8 @@ async def show_profile(message: types.Message, profile_manager: ProfileManager, 
                 partner = await bot.get_chat_member(message.chat.id, top_rel["partner_id"])
                 relations_text = (
                     f"{rel_labels.get(top_rel['relation_type'], top_rel['relation_type'])} с {partner.user.full_name} "
-                    f"(близость: {top_rel.get('intimacy_level', 0)})"
+                    f"(близость: {top_rel.get('intimacy_level', 0)}, статус: "
+                    f"{_relation_status_title(top_rel['relation_type'], top_rel.get('intimacy_level', 0))})"
                 )
         except Exception as e:
             logger.warning("Failed to load relationship info for profile: %s", e)
@@ -419,6 +437,11 @@ async def do_work(message: types.Message, profile_manager: ProfileManager):
 
     await message.reply(f"✅ Вы успешно {task_name} и заработали {lumcoins_reward} Lumcoins!")
     logger.info(f"User {user_id} successfully worked, earned {lumcoins_reward} Lumcoins. Task: '{task_name}'.")
+    try:
+        from core.group.stat.quests_handlers import update_work_quests
+        await update_work_quests(user_id, 1, message.bot)
+    except Exception as quest_error:
+        logger.warning("Не удалось обновить квесты работы для %s: %s", user_id, quest_error)
 
 @stat_router.message(Command("shop"))
 @stat_router.message(F.text.func(lambda text: isinstance(text, str) and text.lower() in {"магазин", "магазин фонов"}))
@@ -643,6 +666,11 @@ async def record_group_activity(message: types.Message, profile_manager: Profile
         await profile_manager.record_message(message.from_user)
         await db.ensure_user_exists(message.from_user.id, message.from_user.username, message.from_user.first_name)
         await db.log_user_interaction(message.from_user.id, "group_message", "message")
+        try:
+            from core.group.stat.quests_handlers import update_message_quests
+            await update_message_quests(message.from_user.id, 1, message.bot)
+        except Exception as quest_error:
+            logger.warning("Не удалось обновить квесты сообщений для %s: %s", message.from_user.id, quest_error)
     except Exception as e:
         logger.error("Failed to record group activity for user %s: %s", message.from_user.id, e)
 
