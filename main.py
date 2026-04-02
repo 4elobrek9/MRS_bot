@@ -247,7 +247,7 @@ async def main():
             bot_info = await asyncio.wait_for(bot.get_me(), timeout=10)
             bot_username = bot_info.username
 
-            mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username)
+            mistral_handler = MistralGroupHandler(bot, MISTRAL_API_KEY, bot_username, sticker_manager_instance)
             dp["mistral_handler"] = mistral_handler
 
             warmup_response = await asyncio.wait_for(mistral_handler.warmup_ping(), timeout=15)

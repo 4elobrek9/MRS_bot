@@ -3,6 +3,7 @@ import asyncio
 import logging
 import random
 import re
+from contextlib import suppress
 from datetime import datetime, time
 from typing import Dict, List, Deque, Set
 from collections import deque
@@ -11,16 +12,18 @@ from aiogram import Bot, types
 from aiogram.enums import ParseMode, ChatType
 from aiogram.exceptions import TelegramAPIError
 from aiogram.dispatcher.event.bases import UNHANDLED
+from aiogram.types import ReactionTypeEmoji
 from core.main.watermark import apply_watermark
 import database as db # ❗ NEW: Добавьте этот импорт
 
 logger = logging.getLogger(__name__)
 
 class MistralGroupHandler:
-    def __init__(self, bot: Bot, mistral_api_key: str, bot_username: str):
+    def __init__(self, bot: Bot, mistral_api_key: str, bot_username: str, sticker_manager=None):
         self.bot = bot
         self.api_key = mistral_api_key
         self.bot_username = bot_username
+        self.sticker_manager = sticker_manager
         self.base_url = "https://api.mistral.ai/v1"
         self.model = "mistral-small-latest"  # Или mistral-tiny, mistral-medium
 
@@ -263,9 +266,16 @@ class MistralGroupHandler:
             last_reply = self.last_reply_time.get(chat_id, 0)
             if self._is_working_hours() and (now_reply - last_reply) >= 12:
                 should_respond = True
-                prompt_instruction = (
-                    "Пользователь ответил тебе. Ответь коротко, дружелюбно и по теме."
-                )
+                member = await self.bot.get_chat_member(chat_id, user_id)
+                honorific = ""
+                if username.lower() == "rin":
+                    honorific = "Обращайся: «госпожа Рин», максимально уважительно."
+                elif username.lower() == "ace":
+                    honorific = "Обращайся: «господин Ace», максимально уважительно."
+                elif member.status in {"administrator", "creator"}:
+                    honorific = "Пользователь админ, обращайся уважительно."
+
+                prompt_instruction = "Пользователь ответил тебе. Ответь коротко, дружелюбно и по теме. " + honorific
                 self.last_reply_time[chat_id] = now_reply
 
         # 4. Генерация и отправка
@@ -280,15 +290,40 @@ class MistralGroupHandler:
                 try:
                     reply_target_message_id = message.message_id
                     if message.reply_to_message is not None:
-                        # Если пользователь ответил на чье-то сообщение,
-                        # AI отвечает в ту же ветку (реплай к исходному сообщению).
-                        reply_target_message_id = message.reply_to_message.message_id
-                    await self.bot.send_message(
+                        # Если пользователь ответил на сообщение бота, которое само было reply —
+                        # отвечаем на самое исходное сообщение пользователя, а не на сообщение бота.
+                        nested_reply = message.reply_to_message.reply_to_message
+                        if (
+                            message.reply_to_message.from_user
+                            and message.reply_to_message.from_user.id == self.bot.id
+                            and nested_reply is not None
+                        ):
+                            reply_target_message_id = nested_reply.message_id
+                        else:
+                            reply_target_message_id = message.reply_to_message.message_id
+                    sent = await self.bot.send_message(
                         chat_id,
                         final_response,
                         parse_mode=ParseMode.MARKDOWN,
                         reply_to_message_id=reply_target_message_id,
                     )
+                    # Реакции с шансом 20%
+                    if random.random() < 0.2:
+                        with suppress(Exception):
+                            reaction = random.choice(["🔥", "❤️", "👍", "⚡", "💯"])
+                            await self.bot.set_message_reaction(
+                                chat_id=chat_id,
+                                message_id=reply_target_message_id,
+                                reaction=[ReactionTypeEmoji(emoji=reaction)],
+                                is_big=False,
+                            )
+                    # Стикер с шансом 40%
+                    if self.sticker_manager is not None and random.random() < 0.4:
+                        with suppress(Exception):
+                            mode = random.choice(list(self.sticker_manager.sticker_packs.keys()))
+                            sticker_id = self.sticker_manager.get_random_sticker(mode)
+                            if sticker_id:
+                                await self.bot.send_sticker(chat_id, sticker_id, reply_to_message_id=sent.message_id)
                     self._add_to_history(chat_id, self.bot_username, response, is_bot=True)
                     logger.info(f"Mistral replied to {chat_id}")
                 except TelegramAPIError as e:
